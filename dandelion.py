@@ -39,7 +39,7 @@ class Chip8CPU(object):
         {'enc': 'Fx0A', 's': 'v{x} := key'},
         {'enc': 'Fx15', 's': 'delay := v{x}'},
         {'enc': 'Fx18', 's': 'buzzer := v{x}'},
-        {'enc': 'Fx1E', 's': '#sound := v{x}'},
+        {'enc': 'Fx1E', 's': 'i += v{x}'},
         {'enc': 'Fx29', 's': 'i := hex v{x}'},
         {'enc': 'Fx33', 's': 'bcd v{x}'},
         {'enc': 'Fx55', 's': 'save v{x}'},
@@ -152,14 +152,14 @@ class Analyzer(object):
                     out += '\n'
                 out += ': %s ' % self.labels[addr]
                 labels_emitted.add(addr)
-            if addr in self.code:
-                out += self.code[addr]
-                if addr + 1 in self.labels:
-                    out += ' # SMC: %s' % self.labels[addr + 1]
-                out += '\n'
+            if addr in self.code and addr + 1 not in self.labels:
+                # addr + 1 in self.labels indicates self-modifying code
+                out += self.code[addr] + '\n'
                 addr_iter.next()
             else:
                 out += hex(val) + ' '
+                if addr - 1 in self.code:
+                    out += ' # SMC: %s\n' % self.code[addr - 1]
         for pos, label in sorted(self.labels.iteritems()):
             if pos < 0x200:
                 continue
@@ -182,10 +182,11 @@ def decompile_chip8(data):
     ana = Analyzer(Chip8CPU(), mem)
     ana.code_ref(0x200)
     ana.analyze()
-    print ana.dump()
+    return ana.dump()
 
 if __name__ == '__main__':
     import sys
     for fname in sys.argv[1:]:
         data = map(ord, open(fname, 'rb').read())
-        decompile_chip8(data)
+        print '#', fname
+        print decompile_chip8(data)
