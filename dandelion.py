@@ -1,53 +1,81 @@
+#!/usr/bin/env python
+
 import re
+import string
+
 
 class InvalidOpcode(Exception):
     pass
+
 
 class Chip8CPU(object):
     insns = [
         {'enc': '00E0', 's': 'clear'},
         {'enc': '00EE', 's': 'return', 'next': ()},
-        {'enc': '1nnn', 's': 'jump $l', 'next': ('n'), 'label': 'n'},
-        {'enc': '2nnn', 's': '$l', 'next': ('n', 2), 'label': 'n'},
-        {'enc': '3xnn', 's': 'if v$x != $n:i then \\', 'next': (2, 4)},
-        {'enc': '4xnn', 's': 'if v$x == $n:i then \\', 'next': (2, 4)},
-        {'enc': '5xy0', 's': 'if v$x != v$y then \\', 'next': (2, 4)},
-        {'enc': '6xnn', 's': 'v$x := $n:i'},
-        {'enc': '7xnn', 's': 'v$x += $n:i'},
-        {'enc': '8xy0', 's': 'v$x := v$y'},
-        {'enc': '8xy1', 's': 'v$x |= v$y'},
-        {'enc': '8xy2', 's': 'v$x &= v$y'},
-        {'enc': '8xy3', 's': 'v$x ^= v$y'},
-        {'enc': '8xy4', 's': 'v$x += v$y'},
-        {'enc': '8xy5', 's': 'v$x -= v$y'},
-        {'enc': '8xy6', 's': 'v$x >>= v$y'},
-        {'enc': '8xy7', 's': 'v$x := v$y - v$y'},
-        {'enc': '8xyE', 's': 'v$x <<= v$y'},
-        {'enc': '9xy0', 's': 'if v$x == v$y then \\', 'next': (2, 4)},
-        {'enc': 'Annn', 's': 'i := $l', 'label': 'n'},
-        {'enc': 'Bnnn', 's': 'jump0 $n'},
-        {'enc': 'Cxnn', 's': 'v$x := random $n:b'},
-        {'enc': 'Dxyn', 's': 'sprite v$x v$y $n:i'},
-        {'enc': 'Ex9E', 's': 'if v$x -key then \\', 'next': (2, 4)},
-        {'enc': 'ExA1', 's': 'if v$x key then \\', 'next': (2, 4)},
-        {'enc': 'Fx07', 's': 'v$x := delay'},
-        {'enc': 'Fx0A', 's': 'v$x := key'},
-        {'enc': 'Fx15', 's': 'delay := v$x'},
-        {'enc': 'Fx18', 's': 'buzzer := v$x'},
-        {'enc': 'Fx1E', 's': '#sound := v$x'},
-        {'enc': 'Fx29', 's': 'i := hex v$x'},
-        {'enc': 'Fx33', 's': 'bcd v$x'},
-        {'enc': 'Fx55', 's': 'save v$x'},
-        {'enc': 'Fx65', 's': 'load v$x'},
+        {'enc': '1nnn', 's': 'jump {n!l}', 'next': ('n')},
+        {'enc': '2nnn', 's': '{n!l}', 'next': ('n', 2)},
+        {'enc': '3xnn', 's': 'if v{x} != {n!i} then \\', 'next': (2, 4)},
+        {'enc': '4xnn', 's': 'if v{x} == {n!i} then \\', 'next': (2, 4)},
+        {'enc': '5xy0', 's': 'if v{x} != v{y} then \\', 'next': (2, 4)},
+        {'enc': '6xnn', 's': 'v{x} := {n!i}'},
+        {'enc': '7xnn', 's': 'v{x} += {n!i}'},
+        {'enc': '8xy0', 's': 'v{x} := v{y}'},
+        {'enc': '8xy1', 's': 'v{x} |= v{y}'},
+        {'enc': '8xy2', 's': 'v{x} &= v{y}'},
+        {'enc': '8xy3', 's': 'v{x} ^= v{y}'},
+        {'enc': '8xy4', 's': 'v{x} += v{y}'},
+        {'enc': '8xy5', 's': 'v{x} -= v{y}'},
+        {'enc': '8xy6', 's': 'v{x} >>= v{y}'},
+        {'enc': '8xy7', 's': 'v{x} =- v{y}'},
+        {'enc': '8xyE', 's': 'v{x} <<= v{y}'},
+        {'enc': '9xy0', 's': 'if v{x} == v{y} then \\', 'next': (2, 4)},
+        {'enc': 'Annn', 's': 'i := {n!l}'},
+        {'enc': 'Bnnn', 's': 'jump0 {n}'},
+        {'enc': 'Cxnn', 's': 'v{x} := random {n!b}'},
+        {'enc': 'Dxyn', 's': 'sprite v{x} v{y} {n!i}'},
+        {'enc': 'Ex9E', 's': 'if v{x} -key then \\', 'next': (2, 4)},
+        {'enc': 'ExA1', 's': 'if v{x} key then \\', 'next': (2, 4)},
+        {'enc': 'Fx07', 's': 'v{x} := delay'},
+        {'enc': 'Fx0A', 's': 'v{x} := key'},
+        {'enc': 'Fx15', 's': 'delay := v{x}'},
+        {'enc': 'Fx18', 's': 'buzzer := v{x}'},
+        {'enc': 'Fx1E', 's': '#sound := v{x}'},
+        {'enc': 'Fx29', 's': 'i := hex v{x}'},
+        {'enc': 'Fx33', 's': 'bcd v{x}'},
+        {'enc': 'Fx55', 's': 'save v{x}'},
+        {'enc': 'Fx65', 's': 'load v{x}'},
     ]
 
     def decode(self, addr, mem, engine):
+        class InsnFormatter(string.Formatter):
+            def convert_field(self, value, conversion):
+                if conversion is None:
+                    return value
+                value_i = int(value, 16)
+                if conversion == 'l':
+                    return engine.get_label(value_i)
+                elif conversion == 'i':
+                    if value_i > 0xE0:
+                        return value_i - 0x100
+                    return value_i
+                elif conversion == 'b':
+                    if value_i <= 1:
+                        return value_i
+                    return bin(value_i)
+
+        formatter = InsnFormatter()
+
+        def par_rep(m):
+            return '(?P<' + m.group(1) + '>' + '.' * len(m.group(0)) + ')'
+
         word = (mem.get(addr) << 8) | mem.get(addr + 1)
         word_hex = '{:04X}'.format(word)
 
         for insn in self.insns:
-            m = self.match(insn['enc'], word_hex)
+            pat_re = re.sub(r'([a-z])(\1*)', par_rep, insn['enc'])
+            m = re.match(pat_re, word_hex)
             if m is not None:
+                m = m.groupdict()
                 for loc in insn.get('next', (2,)):
                     if isinstance(loc, int):
                         engine.add_transfer(addr, addr + loc)
@@ -55,41 +83,8 @@ class Chip8CPU(object):
                         engine.add_transfer(addr, int(m[loc], 16))
                 if 'label' in insn:
                     m['l'] = engine.get_label(int(m[insn['label']], 16))
-                return self.substitute(m, insn['s'])
+                return formatter.format(insn['s'], **m)
         raise InvalidOpcode(word_hex)
-
-    def match(self, pat, word):
-        def par_rep(m):
-            return '(?P<' + m.group(1) + '>' + '.' * len(m.group(0)) + ')'
-
-        pat_re = re.sub(r'([a-z])(\1*)', par_rep, pat)
-        m = re.match(pat_re, word)
-        if m:
-            return m.groupdict()
-        return None
-
-    def substitute(self, groups, template):
-        def val_rep(m):
-            var = m.group(1)
-            fmt = m.group(2)
-            if var in groups:
-                value = groups[var]
-                if fmt:
-                    if fmt == 'i':
-                        value_i = int(value, 16)
-                        if value_i > 0xE0:
-                            return str(value_i - 0x100)
-                        return str(value_i)
-                    elif fmt == 'b':
-                        value_i = int(value, 16)
-                        if value_i == 1:
-                            return str(value_i)
-                        return bin(value_i)
-                    return 'ERR %r %r' % (var, fmt)
-                return value
-            return 'ERR %r %r' % (var, fmt)
-        return re.sub(r'\$(.)(?::(.))?', val_rep, template)
-
 
 
 class MemoryMap(object):
@@ -150,13 +145,18 @@ class Analyzer(object):
             out += ':proto %s # %X\n' % (label, pos)
         out += ': main\n'
         addr_iter = self.mem.addrs()
+        labels_emitted = set()
         for addr, val in addr_iter:
             if addr in self.labels:
                 if not out.endswith('\n'):
                     out += '\n'
                 out += ': %s ' % self.labels[addr]
+                labels_emitted.add(addr)
             if addr in self.code:
-                out += self.code[addr] + '\n'
+                out += self.code[addr]
+                if addr + 1 in self.labels:
+                    out += ' # SMC: %s' % self.labels[addr + 1]
+                out += '\n'
                 addr_iter.next()
             else:
                 out += hex(val) + ' '
@@ -168,6 +168,10 @@ class Analyzer(object):
                     out += '0 '
                     addr += 1
                 out += '\n: %s 0 ' % label
+                labels_emitted.add(pos)
+        labels_missed = set(self.labels) - labels_emitted
+        if labels_missed:
+            out += '# missed labels: %s' % ', '.join(self.labels[l] for l in sorted(labels_missed))
 
         return out.replace('\\\n', '')
 
@@ -182,5 +186,6 @@ def decompile_chip8(data):
 
 if __name__ == '__main__':
     import sys
-    data = map(ord, open(sys.argv[1], 'rb').read())
-    decompile_chip8(data)
+    for fname in sys.argv[1:]:
+        data = map(ord, open(fname, 'rb').read())
+        decompile_chip8(data)
