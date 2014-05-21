@@ -7,64 +7,81 @@ import string
 class InvalidOpcode(Exception):
     pass
 
+class Label(object):
+    def __init__(self, name, addr, uses):
+        self.name = name
+        self.addr = addr
+        self.uses = uses
+
+    def __str__(self):
+        return self.name
+
+
+class Instruction(object):
+    def __init__(self, addr, fmt, data, engine):
+        self.fmt = fmt
+        self.data = data
+
+        if '{n!l}' in self.fmt:
+            self.label = engine.get_label(data['n'], addr)
+
+    def __str__(self):
+        class InsnFormatter(string.Formatter):
+            def convert_field(inner, value, conversion):
+                if conversion is None:
+                    return value
+                if conversion == 'l':
+                    return self.label
+                elif conversion == 'i':
+                    if value > 0xE0:
+                        return value - 0x100
+                    return value
+                elif conversion == 'b':
+                    if value <= 1:
+                        return value
+                    return bin(value)
+        return InsnFormatter().format(self.fmt, **self.data)
+
 
 class Chip8CPU(object):
     insns = [
         {'enc': '00E0', 's': 'clear'},
         {'enc': '00EE', 's': 'return', 'next': ()},
         {'enc': '1nnn', 's': 'jump {n!l}', 'next': ('n')},
-        {'enc': '2nnn', 's': '{n!l}', 'next': ('n', 2)},
-        {'enc': '3xnn', 's': 'if v{x} != {n!i} then \\', 'next': (2, 4)},
-        {'enc': '4xnn', 's': 'if v{x} == {n!i} then \\', 'next': (2, 4)},
-        {'enc': '5xy0', 's': 'if v{x} != v{y} then \\', 'next': (2, 4)},
-        {'enc': '6xnn', 's': 'v{x} := {n!i}'},
-        {'enc': '7xnn', 's': 'v{x} += {n!i}'},
-        {'enc': '8xy0', 's': 'v{x} := v{y}'},
-        {'enc': '8xy1', 's': 'v{x} |= v{y}'},
-        {'enc': '8xy2', 's': 'v{x} &= v{y}'},
-        {'enc': '8xy3', 's': 'v{x} ^= v{y}'},
-        {'enc': '8xy4', 's': 'v{x} += v{y}'},
-        {'enc': '8xy5', 's': 'v{x} -= v{y}'},
-        {'enc': '8xy6', 's': 'v{x} >>= v{y}'},
-        {'enc': '8xy7', 's': 'v{x} =- v{y}'},
-        {'enc': '8xyE', 's': 'v{x} <<= v{y}'},
-        {'enc': '9xy0', 's': 'if v{x} == v{y} then \\', 'next': (2, 4)},
+        {'enc': '2nnn', 's': '{n!l}', 'call': ('n')},
+        {'enc': '3xnn', 's': 'if v{x:X} != {n!i} then \\', 'next': (2, 4)},
+        {'enc': '4xnn', 's': 'if v{x:X} == {n!i} then \\', 'next': (2, 4)},
+        {'enc': '5xy0', 's': 'if v{x:X} != v{y:X} then \\', 'next': (2, 4)},
+        {'enc': '6xnn', 's': 'v{x:X} := {n!i}'},
+        {'enc': '7xnn', 's': 'v{x:X} += {n!i}'},
+        {'enc': '8xy0', 's': 'v{x:X} := v{y:X}'},
+        {'enc': '8xy1', 's': 'v{x:X} |= v{y:X}'},
+        {'enc': '8xy2', 's': 'v{x:X} &= v{y:X}'},
+        {'enc': '8xy3', 's': 'v{x:X} ^= v{y:X}'},
+        {'enc': '8xy4', 's': 'v{x:X} += v{y:X}'},
+        {'enc': '8xy5', 's': 'v{x:X} -= v{y:X}'},
+        {'enc': '8xy6', 's': 'v{x:X} >>= v{y:X}'},
+        {'enc': '8xy7', 's': 'v{x:X} =- v{y:X}'},
+        {'enc': '8xyE', 's': 'v{x:X} <<= v{y:X}'},
+        {'enc': '9xy0', 's': 'if v{x:X} == v{y:X} then \\', 'next': (2, 4)},
         {'enc': 'Annn', 's': 'i := {n!l}'},
-        {'enc': 'Bnnn', 's': 'jump0 {n}'},
-        {'enc': 'Cxnn', 's': 'v{x} := random {n!b}'},
-        {'enc': 'Dxyn', 's': 'sprite v{x} v{y} {n!i}'},
-        {'enc': 'Ex9E', 's': 'if v{x} -key then \\', 'next': (2, 4)},
-        {'enc': 'ExA1', 's': 'if v{x} key then \\', 'next': (2, 4)},
-        {'enc': 'Fx07', 's': 'v{x} := delay'},
-        {'enc': 'Fx0A', 's': 'v{x} := key'},
-        {'enc': 'Fx15', 's': 'delay := v{x}'},
-        {'enc': 'Fx18', 's': 'buzzer := v{x}'},
-        {'enc': 'Fx1E', 's': 'i += v{x}'},
-        {'enc': 'Fx29', 's': 'i := hex v{x}'},
-        {'enc': 'Fx33', 's': 'bcd v{x}'},
-        {'enc': 'Fx55', 's': 'save v{x}'},
-        {'enc': 'Fx65', 's': 'load v{x}'},
+        {'enc': 'Bnnn', 's': 'jump0 {n!l}'},
+        {'enc': 'Cxnn', 's': 'v{x:X} := random {n!b}'},
+        {'enc': 'Dxyn', 's': 'sprite v{x:X} v{y:X} {n!i}'},
+        {'enc': 'Ex9E', 's': 'if v{x:X} -key then \\', 'next': (2, 4)},
+        {'enc': 'ExA1', 's': 'if v{x:X} key then \\', 'next': (2, 4)},
+        {'enc': 'Fx07', 's': 'v{x:X} := delay'},
+        {'enc': 'Fx0A', 's': 'v{x:X} := key'},
+        {'enc': 'Fx15', 's': 'delay := v{x:X}'},
+        {'enc': 'Fx18', 's': 'buzzer := v{x:X}'},
+        {'enc': 'Fx1E', 's': 'i += v{x:X}'},
+        {'enc': 'Fx29', 's': 'i := hex v{x:X}'},
+        {'enc': 'Fx33', 's': 'bcd v{x:X}'},
+        {'enc': 'Fx55', 's': 'save v{x:X}'},
+        {'enc': 'Fx65', 's': 'load v{x:X}'},
     ]
 
     def decode(self, addr, mem, engine):
-        class InsnFormatter(string.Formatter):
-            def convert_field(self, value, conversion):
-                if conversion is None:
-                    return value
-                value_i = int(value, 16)
-                if conversion == 'l':
-                    return engine.get_label(value_i)
-                elif conversion == 'i':
-                    if value_i > 0xE0:
-                        return value_i - 0x100
-                    return value_i
-                elif conversion == 'b':
-                    if value_i <= 1:
-                        return value_i
-                    return bin(value_i)
-
-        formatter = InsnFormatter()
-
         def par_rep(m):
             return '(?P<' + m.group(1) + '>' + '.' * len(m.group(0)) + ')'
 
@@ -75,15 +92,15 @@ class Chip8CPU(object):
             pat_re = re.sub(r'([a-z])(\1*)', par_rep, insn['enc'])
             m = re.match(pat_re, word_hex)
             if m is not None:
-                m = m.groupdict()
+                m = {k : int(v,16) for k, v in m.groupdict().iteritems()}
                 for loc in insn.get('next', (2,)):
                     if isinstance(loc, int):
                         engine.add_transfer(addr, addr + loc)
                     else:
-                        engine.add_transfer(addr, int(m[loc], 16))
-                if 'label' in insn:
-                    m['l'] = engine.get_label(int(m[insn['label']], 16))
-                return formatter.format(insn['s'], **m)
+                        engine.add_transfer(addr, m[loc])
+                if 'call' in insn:
+                    engine.add_call(addr, m[insn['call']])
+                return Instruction(addr, insn['s'], m, engine)
         raise InvalidOpcode(word_hex)
 
 
@@ -127,22 +144,40 @@ class Analyzer(object):
                 continue
             asm = self.decoder.decode(addr, self.mem, self)
             self.code[addr] = asm
+        self.rename_labels()
 
     def add_transfer(self, src, dst):
         self.code_ref(dst)
 
-    def get_label(self, addr):
+    def add_call(self, src, target):
+        self.code_ref(target)
+
+    def get_label(self, addr, xref):
         if addr in self.labels:
-            return self.labels[addr]
-        ret = 'L%d' % self.label_n
+            lab = self.labels[addr]
+            lab.uses.append(xref)
+            return lab
+        ret = Label('L%d' % self.label_n, addr, [xref])
         self.label_n += 1
         self.labels[addr] = ret
         return ret
 
+    def rename_labels(self):
+        code_count = 1
+        data_count = 1
+        for pos, label in sorted(self.labels.iteritems()):
+            if label.addr in self.code:
+                label.name = 'L%d' % code_count
+                code_count += 1
+            else:
+                label.name = 'D%d' % data_count
+                data_count += 1
+
     def dump(self):
         out = ''
         for pos, label in sorted(self.labels.iteritems()):
-            out += ':proto %s # %X\n' % (label, pos)
+            if any(label.addr > use for use in label.uses):
+                out += ':proto %s # %X\n' % (label, pos)
         out += ': main\n'
         addr_iter = self.mem.addrs()
         labels_emitted = set()
@@ -150,11 +185,11 @@ class Analyzer(object):
             if addr in self.labels:
                 if not out.endswith('\n'):
                     out += '\n'
-                out += ': %s ' % self.labels[addr]
+                out += ': %s \n' % self.labels[addr]
                 labels_emitted.add(addr)
             if addr in self.code and addr + 1 not in self.labels:
                 # addr + 1 in self.labels indicates self-modifying code
-                out += self.code[addr] + '\n'
+                out += '%s\n' % self.code[addr]
                 addr_iter.next()
             else:
                 out += hex(val) + ' '
