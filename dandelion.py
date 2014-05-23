@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import collections
+
 
 class Label(object):
     def __init__(self, name, addr, uses):
@@ -30,6 +32,16 @@ class MemoryMap(object):
             for pos, value in enumerate(data):
                 yield offset + pos, value
 
+class BasicBlock(object):
+    def __init__(self, addr, label):
+        self.addr = addr
+        self.label = label
+        self.code = []
+        self.pred = []
+        self.succ = []
+
+    def __repr__(self):
+        return 'BB %s #%r' % (self.label, self.code)
 
 class Analyzer(object):
 
@@ -40,6 +52,7 @@ class Analyzer(object):
         self.mem = mem
         self.labels = {}
         self.label_n = 0
+        self.transfers = collections.defaultdict(list)
 
     def code_ref(self, addr):
         self.worklist.append(addr)
@@ -54,6 +67,7 @@ class Analyzer(object):
         self.rename_labels()
 
     def add_transfer(self, src, dst):
+        self.transfers[src].append(dst)
         self.code_ref(dst)
 
     def add_call(self, src, target):
@@ -80,7 +94,26 @@ class Analyzer(object):
                 label.name = 'D%d' % data_count
                 data_count += 1
 
+    def extract_bbs(self):
+        bbs = {}
+        for pos, label in sorted(self.labels.iteritems()):
+            if pos not in self.code:
+                continue
+            bb = BasicBlock(pos, label)
+            bbs[pos] = bb
+            while True:
+                line = self.code[pos]
+                bb.code.append(line)
+                if pos in self.transfers and self.transfers[pos] != [pos + 2]:
+                    bb.succ.extend(self.transfers[pos])
+                    break
+                pos += 2
+                if pos not in self.code or pos in self.labels:
+                    break
+        print '#', sorted(bbs.iteritems())
+
     def dump(self):
+        self.extract_bbs()
         out = ''
         for pos, label in sorted(self.labels.iteritems()):
             if any(label.addr > use for use in label.uses):

@@ -33,6 +33,9 @@ class Chip8Instruction(object):
                 ret['l'] = engine.get_label(v, self.addr)
         return ret
 
+    def __repr__(self):
+        return str(self)
+
 
 def InsnType(encoding, fmt, next=(2,), call=None):
     def par_rep(m):
