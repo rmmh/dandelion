@@ -41,7 +41,9 @@ class BasicBlock(object):
         self.succ = []
 
     def __repr__(self):
-        return 'BB %s #%r' % (self.label, self.code)
+        def labels(l):
+            return ','.join(str(x.label) for x in l)
+        return '(BB %s P:%s S:%s #%r)' % (self.label, labels(self.pred), labels(self.succ), self.code)
 
 class Analyzer(object):
 
@@ -94,18 +96,22 @@ class Analyzer(object):
                 label.name = 'D%d' % data_count
                 data_count += 1
 
-    def extract_bbs(self):
+    def extract_cfg(self):
         bbs = {}
         for pos, label in sorted(self.labels.iteritems()):
             if pos not in self.code:
                 continue
-            bb = BasicBlock(pos, label)
-            bbs[pos] = bb
+            bbs[pos] = BasicBlock(pos, label)
+        for pos, bb in bbs.iteritems():
             while True:
                 line = self.code[pos]
                 bb.code.append(line)
-                if pos in self.transfers and self.transfers[pos] != [pos + 2]:
-                    bb.succ.extend(self.transfers[pos])
+                if pos in self.transfers and self.transfers[pos] not in (
+                    [pos + 2], [pos + 2, pos + 4]):
+                    for succ_pos in self.transfers[pos]:
+                        succ = bbs[succ_pos]
+                        bb.succ.append(succ)
+                        succ.pred.append(bb)
                     break
                 pos += 2
                 if pos not in self.code or pos in self.labels:
@@ -113,7 +119,7 @@ class Analyzer(object):
         print '#', sorted(bbs.iteritems())
 
     def dump(self):
-        self.extract_bbs()
+        self.extract_cfg()
         out = ''
         for pos, label in sorted(self.labels.iteritems()):
             if any(label.addr > use for use in label.uses):
