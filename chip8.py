@@ -15,9 +15,12 @@ class Chip8Instruction(object):
             engine.add_call(addr, args[self.call_])
         for offset in self.next_:
             if isinstance(offset, int):
-                engine.add_transfer(addr, addr + offset)
+                target = addr + offset
             else:
-                engine.add_transfer(addr, args[offset])
+                target = args[offset]
+            engine.add_transfer(self.addr, target)
+            if len(self.next_) > 1:
+                engine.add_xref(self.addr, target, 'branch')
 
     def __str__(self):
         return self.fmt_.format(**self.fmt_args)

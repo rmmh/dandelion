@@ -55,6 +55,7 @@ class Analyzer(object):
         self.labels = {}
         self.label_n = 0
         self.transfers = collections.defaultdict(list)
+        self.xrefs = collections.defaultdict(list)
 
     def code_ref(self, addr):
         self.worklist.append(addr)
@@ -68,9 +69,18 @@ class Analyzer(object):
             self.code[addr] = asm
         self.rename_labels()
 
-    def add_transfer(self, src, dst):
+    def add_transfer(self, src, dst, next=False):
         self.transfers[src].append(dst)
         self.code_ref(dst)
+
+    def add_xref(self, src, dst, ty):
+        self.xrefs[dst].append((src, ty))
+
+    def has_xref(self, addr, ty):
+        for source, xref_ty in self.xrefs.get(addr, []):
+            if xref_ty == ty:
+                return True
+        return False
 
     def add_call(self, src, target):
         self.code_ref(target)
@@ -98,25 +108,48 @@ class Analyzer(object):
 
     def extract_cfg(self):
         bbs = {}
+        worklist = []
+
+        def get_bb(pos, label=None):
+            if pos not in bbs:
+                if label is None:
+                    label = 'C%d' % pos
+                bb = BasicBlock(pos, label)
+                worklist.append(bb)
+                bbs[pos] = bb
+            return bbs[pos]
+
         for pos, label in sorted(self.labels.iteritems()):
             if pos not in self.code:
                 continue
-            bbs[pos] = BasicBlock(pos, label)
-        for pos, bb in bbs.iteritems():
+            get_bb(pos, label)
+
+        while worklist:
+            bb = worklist.pop()
+            pos = bb.addr
             while True:
                 line = self.code[pos]
                 bb.code.append(line)
-                if pos in self.transfers and self.transfers[pos] not in (
-                    [pos + 2], [pos + 2, pos + 4]):
-                    for succ_pos in self.transfers[pos]:
-                        succ = bbs[succ_pos]
+                following = self.transfers.get(pos)
+                if following is None:
+                    break
+                if following != [pos + 2]:
+                    for succ_pos in following:
+                        succ = get_bb(succ_pos)
                         bb.succ.append(succ)
                         succ.pred.append(bb)
                     break
-                pos += 2
-                if pos not in self.code or pos in self.labels:
+                assert len(following) <= 1
+                if not following:
                     break
-        print '#', sorted(bbs.iteritems())
+                pos = following[0]
+                if pos not in self.code:
+                    break
+                if pos in self.labels or self.has_xref(pos, 'branch'):
+                    bb.succ.append(get_bb(pos))
+                    break
+        for pos, bb in sorted(bbs.iteritems()):
+            print '#', bb
 
     def dump(self):
         self.extract_cfg()
