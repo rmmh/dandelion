@@ -45,6 +45,25 @@ class BasicBlock(object):
             return ','.join(str(x.label) for x in l)
         return '(BB %s P:%s S:%s #%r)' % (self.label, labels(self.pred), labels(self.succ), self.code)
 
+
+def find_dominators(bbs):
+    bb_doms = {bb: set(bbs) for bb in bbs}
+
+    changed = True
+    while changed:
+        changed = False
+        for bb in bbs:
+            if bb.pred:
+                dom = set.intersection(*[bb_doms[pred] for pred in bb.pred])
+            else:
+                dom = set()
+            dom.add(bb)
+            if dom != bb_doms[bb]:
+                changed = True
+                bb_doms[bb] = dom
+    return bb_doms
+
+
 class Analyzer(object):
 
     def __init__(self, decoder, mem):
@@ -83,25 +102,35 @@ class Analyzer(object):
         return False
 
     def add_call(self, src, target):
+        self.add_xref(src, target, 'call')
         self.code_ref(target)
 
-    def get_label(self, addr, xref):
+    def get_label(self, addr, xref, name=None):
         if addr in self.labels:
             lab = self.labels[addr]
             lab.uses.append(xref)
             return lab
-        ret = Label('L%d' % self.label_n, addr, [xref])
-        self.label_n += 1
+        if name is None:
+            name = 'L%d' % self.label_n
+            self.label_n += 1
+        ret = Label(name, addr, [xref])
         self.labels[addr] = ret
         return ret
 
     def rename_labels(self):
         code_count = 1
         data_count = 1
+        pred_count = 1
         for pos, label in sorted(self.labels.iteritems()):
+            if not label.name.startswith('L'):
+                continue
             if label.addr in self.code:
-                label.name = 'L%d' % code_count
-                code_count += 1
+                if self.has_xref(label.addr, 'call'):
+                    label.name = 'Sub%d' % pred_count
+                    pred_count += 1
+                else:
+                    label.name = 'L%d' % code_count
+                    code_count += 1
             else:
                 label.name = 'D%d' % data_count
                 data_count += 1
@@ -124,9 +153,17 @@ class Analyzer(object):
                 continue
             get_bb(pos, label)
 
+        def linkto(a, b):
+            a.succ.append(b)
+            b.pred.append(a)
+
         while worklist:
             bb = worklist.pop()
             pos = bb.addr
+            if self.has_xref(pos, 'call'):
+                bb_entry = BasicBlock(None, '%s_ENTRY' % bb.label)
+                linkto(bb_entry, bb)
+                bbs[-pos] = bb_entry
             while True:
                 line = self.code[pos]
                 bb.code.append(line)
@@ -135,9 +172,7 @@ class Analyzer(object):
                     break
                 if following != [pos + 2]:
                     for succ_pos in following:
-                        succ = get_bb(succ_pos)
-                        bb.succ.append(succ)
-                        succ.pred.append(bb)
+                        linkto(bb, get_bb(succ_pos))
                     break
                 assert len(following) <= 1
                 if not following:
@@ -146,10 +181,11 @@ class Analyzer(object):
                 if pos not in self.code:
                     break
                 if pos in self.labels or self.has_xref(pos, 'branch'):
-                    bb.succ.append(get_bb(pos))
+                    linkto(bb, get_bb(pos))
                     break
+        doms = find_dominators(bbs.values())
         for pos, bb in sorted(bbs.iteritems()):
-            print '#', bb
+            print '#', bb, '/'.join(sorted(str(d.label) for d in doms[bb]))
 
     def dump(self):
         self.extract_cfg()
@@ -157,14 +193,16 @@ class Analyzer(object):
         for pos, label in sorted(self.labels.iteritems()):
             if any(label.addr > use for use in label.uses):
                 out += ':proto %s # %X\n' % (label, pos)
-        out += ': main\n'
         addr_iter = self.mem.addrs()
         labels_emitted = set()
         for addr, val in addr_iter:
             if addr in self.labels:
                 if not out.endswith('\n'):
                     out += '\n'
-                out += ': %s \n' % self.labels[addr]
+                label = self.labels[addr]
+                if label.name.startswith('Sub'):
+                    out += '\n'
+                out += ': %s \n' % label
                 labels_emitted.add(addr)
             if addr in self.code and addr + 1 not in self.labels:
                 # addr + 1 in self.labels indicates self-modifying code
@@ -195,7 +233,8 @@ def decompile_chip8(data):
     mem = MemoryMap()
     mem.load_segment(0x200, data)
     ana = Analyzer(chip8.decode, mem)
-    ana.code_ref(0x200)
+    ana.get_label(0x200, 0, 'main')
+    ana.add_call(0, 0x200)
     ana.analyze()
     return ana.dump()
 

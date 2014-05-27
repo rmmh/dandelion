@@ -76,7 +76,7 @@ instructions = [
     InsnType('9xy0', 'if {x} == {y} then \\', next=(2, 4)),
     InsnType('Aooo', 'i := {l}'),
     InsnType('Booo', 'jump0 {l}'),
-    InsnType('Cxvv', '{x} := random {v:b}'),
+    InsnType('Cxvv', '{x} := random 0b{v:b}'),
     InsnType('Dxyn', 'sprite {x} {y} {n}'),
     InsnType('Ex9E', 'if {x} -key then \\', next=(2, 4)),
     InsnType('ExA1', 'if {x} key then \\', next=(2, 4)),
