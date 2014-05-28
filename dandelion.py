@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import collections
+import re
 
 
 class Label(object):
@@ -183,35 +184,67 @@ class Analyzer(object):
                 if pos in self.labels or self.has_xref(pos, 'branch'):
                     linkto(bb, get_bb(pos))
                     break
+        return bbs
+
+    def dump(self):
+        bbs = self.extract_cfg()
         doms = find_dominators(bbs.values())
+
         for pos, bb in sorted(bbs.iteritems()):
             print '#', bb, '/'.join(sorted(str(d.label) for d in doms[bb]))
 
-    def dump(self):
-        self.extract_cfg()
         out = ''
         for pos, label in sorted(self.labels.iteritems()):
             if any(label.addr > use for use in label.uses):
                 out += ':proto %s # %X\n' % (label, pos)
+
+        def check_loop(addr):
+            if addr not in self.code:
+                return False
+            bb = bbs[addr]
+            for pred in bb.pred:
+                if bb in doms[pred]:
+                    print '# loop ', bb, pred
+                    again_addrs[pred.code[-1].addr] = True
+                    return True
+            return False
+
+        again_addrs = {}
         addr_iter = self.mem.addrs()
         labels_emitted = set()
+        indent_count = 0
+        indent = ''
         for addr, val in addr_iter:
             if addr in self.labels:
-                if not out.endswith('\n'):
-                    out += '\n'
                 label = self.labels[addr]
-                if label.name.startswith('Sub'):
-                    out += '\n'
-                out += ': %s \n' % label
-                labels_emitted.add(addr)
+                is_loop = check_loop(addr)
+                if len(label.uses) - is_loop:
+                    if not out.endswith('\n'):
+                        out += '\n'
+                    if label.name.startswith('Sub'):
+                        out += '\n'
+                    out += ': %s \n' % label
+                    labels_emitted.add(addr)
+                if is_loop:
+                    out += indent + 'loop\n'
+                    indent_count += 2
+                    indent = ' ' * indent_count
             if addr in self.code and addr + 1 not in self.labels:
                 # addr + 1 in self.labels indicates self-modifying code
-                out += '%s\n' % self.code[addr]
+                if addr in again_addrs:
+                    if out.endswith('\\\n'):
+                        out = out[:-2] + '\n'
+                    indent_count -= 2
+                    indent = ' ' * indent_count
+                    out += indent + 'again\n'
+                else:
+                    out += indent + '%s\n' % self.code[addr]
                 addr_iter.next()
             else:
                 out += hex(val) + ' '
                 if addr - 1 in self.code:
                     out += ' # SMC: %s\n' % self.code[addr - 1]
+            # out += '# %x\n' % addr
         for pos, label in sorted(self.labels.iteritems()):
             if pos < 0x200:
                 continue
@@ -223,9 +256,9 @@ class Analyzer(object):
                 labels_emitted.add(pos)
         labels_missed = set(self.labels) - labels_emitted
         if labels_missed:
-            out += '# missed labels: %s' % ', '.join(self.labels[l] for l in sorted(labels_missed))
+            out += '# missed labels: %s' % ', '.join(str(self.labels[l]) for l in sorted(labels_missed))
 
-        return out.replace('\\\n', '')
+        return re.sub(r'(\w) +(\w)', r'\1 \2', out.replace('\\\n', ''))
 
 
 def decompile_chip8(data):
@@ -233,8 +266,8 @@ def decompile_chip8(data):
     mem = MemoryMap()
     mem.load_segment(0x200, data)
     ana = Analyzer(chip8.decode, mem)
-    ana.get_label(0x200, 0, 'main')
-    ana.add_call(0, 0x200)
+    ana.get_label(0x200, 0x200, 'main')
+    ana.add_call(0x200, 0x200)
     ana.analyze()
     return ana.dump()
 
@@ -242,5 +275,5 @@ if __name__ == '__main__':
     import sys
     for fname in sys.argv[1:]:
         data = map(ord, open(fname, 'rb').read())
-        print '#', fname
+        print '# INPUT:', fname
         print decompile_chip8(data)
