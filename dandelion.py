@@ -5,6 +5,7 @@ import re
 
 
 class Label(object):
+
     def __init__(self, name, addr, uses):
         self.name = name
         self.addr = addr
@@ -33,7 +34,9 @@ class MemoryMap(object):
             for pos, value in enumerate(data):
                 yield offset + pos, value
 
+
 class BasicBlock(object):
+
     def __init__(self, addr, label):
         self.addr = addr
         self.label = label
@@ -44,7 +47,8 @@ class BasicBlock(object):
     def __repr__(self):
         def labels(l):
             return ','.join(str(x.label) for x in l)
-        return '(BB %s P:%s S:%s #%r)' % (self.label, labels(self.pred), labels(self.succ), self.code)
+        return '(BB %s P:%s S:%s #%r)' % (self.label, labels(self.pred),
+                                          labels(self.succ), self.code)
 
 
 def find_dominators(bbs):
@@ -52,6 +56,7 @@ def find_dominators(bbs):
 
     changed = True
     while changed:
+        # TODO: traverse cfg in post-order for efficiency
         changed = False
         for bb in bbs:
             if bb.pred:
@@ -63,6 +68,43 @@ def find_dominators(bbs):
                 changed = True
                 bb_doms[bb] = dom
     return bb_doms
+
+NaturalLoop = collections.namedtuple('NaturalLoop',
+                                     'head body back back_nested')
+
+
+def extract_natural_loops(bbs, doms):
+    natural_loops = {}
+
+    def extract_loop(head, back):
+        loop = natural_loops.setdefault(
+            head, NaturalLoop(head, {head}, set(), set()))
+        loop.back.add(back)
+        stack = [back]
+        while stack:
+            bb = stack.pop()
+            if bb not in loop.body:
+                loop.body.add(bb)
+                for pred in bb.pred:
+                    stack.append(pred)
+
+    for bb in bbs.itervalues():
+        for succ in bb.succ:
+            if succ in doms[bb]:
+                extract_loop(succ, bb)
+
+    # TODO: proper interval/structural analysis
+
+    # loops should nest properly
+    for head1, loop1 in natural_loops.iteritems():
+        for head2, loop2 in natural_loops.iteritems():
+            if head1 is head2:
+                continue
+            if head2 in loop1.body:
+                assert loop2.body.issubset(loop1.body)
+                loop1.back_nested.update(loop2.body & loop1.back)
+
+    return natural_loops
 
 
 class Analyzer(object):
@@ -189,27 +231,37 @@ class Analyzer(object):
     def dump(self):
         bbs = self.extract_cfg()
         doms = find_dominators(bbs.values())
+        natural_loops = extract_natural_loops(bbs, doms)
+
+        def labels(bbs, truncate=False):
+            bbs = sorted(bbs, key=lambda x: x.addr)
+            if truncate and len(bbs) > 1:
+                return '%s..%s' % (bbs[0].label, bbs[-1].label)
+            return '/'.join(str(bb.label) for bb in bbs)
 
         for pos, bb in sorted(bbs.iteritems()):
-            print '#', bb, '/'.join(sorted(str(d.label) for d in doms[bb]))
+            print '#', bb, labels(doms[bb])
+
+        loop_points = set()
+        again_points = set()
+
+        print '# loops:'
+        for head, loop in natural_loops.iteritems():
+            print '# HEAD:', str(head.label), labels(loop.body, True), labels(loop.back_nested),
+            if loop.back - loop.back_nested:
+                loop_point = loop.head
+                again_point = max(loop.back - loop.back_nested, key=lambda x: x.addr)
+                loop_points.add(loop_point.addr)
+                again_points.add(again_point.addr)
+                print loop_point.label, '...', again_point.label,
+            print
+
 
         out = ''
         for pos, label in sorted(self.labels.iteritems()):
             if any(label.addr > use for use in label.uses):
                 out += ':proto %s # %X\n' % (label, pos)
 
-        def check_loop(addr):
-            if addr not in self.code:
-                return False
-            bb = bbs[addr]
-            for pred in bb.pred:
-                if bb in doms[pred]:
-                    print '# loop ', bb, pred
-                    again_addrs[pred.code[-1].addr] = True
-                    return True
-            return False
-
-        again_addrs = {}
         addr_iter = self.mem.addrs()
         labels_emitted = set()
         indent_count = 0
@@ -217,7 +269,7 @@ class Analyzer(object):
         for addr, val in addr_iter:
             if addr in self.labels:
                 label = self.labels[addr]
-                is_loop = check_loop(addr)
+                is_loop = addr in loop_points
                 if len(label.uses) - is_loop:
                     if not out.endswith('\n'):
                         out += '\n'
@@ -231,7 +283,7 @@ class Analyzer(object):
                     indent = ' ' * indent_count
             if addr in self.code and addr + 1 not in self.labels:
                 # addr + 1 in self.labels indicates self-modifying code
-                if addr in again_addrs:
+                if addr in again_points:
                     if out.endswith('\\\n'):
                         out = out[:-2] + '\n'
                     indent_count -= 2
@@ -256,7 +308,8 @@ class Analyzer(object):
                 labels_emitted.add(pos)
         labels_missed = set(self.labels) - labels_emitted
         if labels_missed:
-            out += '# missed labels: %s' % ', '.join(str(self.labels[l]) for l in sorted(labels_missed))
+            out += '# missed labels: %s' % ', '.join(
+                str(self.labels[l]) for l in sorted(labels_missed))
 
         return re.sub(r'(\w) +(\w)', r'\1 \2', out.replace('\\\n', ''))
 
