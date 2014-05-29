@@ -116,7 +116,7 @@ class Analyzer(object):
         self.mem = mem
         self.labels = {}
         self.label_n = 0
-        self.transfers = collections.defaultdict(list)
+        self.refs = collections.defaultdict(list)
         self.xrefs = collections.defaultdict(list)
 
     def code_ref(self, addr):
@@ -125,27 +125,33 @@ class Analyzer(object):
     def analyze(self):
         while self.worklist:
             addr = self.worklist.pop()
-            if self.code.get(addr):
-                continue
-            asm = self.decoder(addr, self.mem, self)
-            self.code[addr] = asm
+            while True:
+                if self.code.get(addr):
+                    break
+                insn = self.decoder(addr, self.mem, self)
+                self.code[addr] = insn
+                if insn.does_control_flow():
+                    break
+                addr += len(insn)
+
         self.rename_labels()
 
-    def add_transfer(self, src, dst, next=False):
-        self.transfers[src].append(dst)
+    def add_branch(self, src, dst, next=False):
+        self.add_ref(src, dst, 'branch')
         self.code_ref(dst)
 
-    def add_xref(self, src, dst, ty):
+    def add_ref(self, src, dst, ty):
+        self.refs[src].append((dst, ty))
         self.xrefs[dst].append((src, ty))
 
-    def has_xref(self, addr, ty):
+    def get_xref(self, addr, ty):
         for source, xref_ty in self.xrefs.get(addr, []):
             if xref_ty == ty:
                 return True
         return False
 
     def add_call(self, src, target):
-        self.add_xref(src, target, 'call')
+        self.add_ref(src, target, 'call')
         self.code_ref(target)
 
     def get_label(self, addr, xref, name=None):
@@ -168,7 +174,7 @@ class Analyzer(object):
             if not label.name.startswith('L'):
                 continue
             if label.addr in self.code:
-                if self.has_xref(label.addr, 'call'):
+                if self.get_xref(label.addr, 'call'):
                     label.name = 'Sub%d' % pred_count
                     pred_count += 1
                 else:
@@ -203,27 +209,21 @@ class Analyzer(object):
         while worklist:
             bb = worklist.pop()
             pos = bb.addr
-            if self.has_xref(pos, 'call'):
+            if self.get_xref(pos, 'call'):
                 bb_entry = BasicBlock(None, '%s_ENTRY' % bb.label)
                 linkto(bb_entry, bb)
                 bbs[-pos] = bb_entry
             while True:
-                line = self.code[pos]
-                bb.code.append(line)
-                following = self.transfers.get(pos)
-                if following is None:
-                    break
-                if following != [pos + 2]:
-                    for succ_pos in following:
+                insn = self.code[pos]
+                bb.code.append(insn)
+                if insn.does_control_flow():
+                    for succ_pos in insn.next:
                         linkto(bb, get_bb(succ_pos))
                     break
-                assert len(following) <= 1
-                if not following:
-                    break
-                pos = following[0]
+                pos += len(insn)
                 if pos not in self.code:
                     break
-                if pos in self.labels or self.has_xref(pos, 'branch'):
+                if pos in self.labels or self.get_xref(pos, 'branch'):
                     linkto(bb, get_bb(pos))
                     break
         return bbs

@@ -8,19 +8,21 @@ class InvalidOpcode(Exception):
 class Chip8Instruction(object):
 
     def __init__(self, addr, args, engine):
+        self.length = 2
         self.addr = addr
         self.args = args
         self.fmt_args = self.fmt_args(args, engine)
+        self.next = []
         if self.call_:
             engine.add_call(addr, args[self.call_])
-        for offset in self.next_:
-            if isinstance(offset, int):
-                target = addr + offset
-            else:
-                target = args[offset]
-            engine.add_transfer(self.addr, target)
-            if len(self.next_) > 1:
-                engine.add_xref(self.addr, target, 'branch')
+        if self.branch_ is not None:
+            for offset in self.branch_:
+                if isinstance(offset, int):
+                    target = addr + offset
+                else:
+                    target = args[offset]
+                self.next.append(target)
+                engine.add_branch(self.addr, target)
 
     def __str__(self):
         return self.fmt_.format(**self.fmt_args)
@@ -39,8 +41,14 @@ class Chip8Instruction(object):
     def __repr__(self):
         return str(self)
 
+    def __len__(self):
+        return self.length
 
-def InsnType(encoding, fmt, next=(2,), call=None):
+    def does_control_flow(self):
+        return self.branch_ is not None
+
+
+def InsnType(encoding, fmt, branch=None, call=None):
     def par_rep(m):
         return '(?P<' + m.group(1) + '>' + '.' * len(m.group(0)) + ')'
     pat_re = re.sub(r'([a-z])(\1*)', par_rep, encoding)
@@ -49,19 +57,19 @@ def InsnType(encoding, fmt, next=(2,), call=None):
         match = re.compile(pat_re).match
         encoding_ = encoding
         call_ = call
-        next_ = next
+        branch_ = branch
         fmt_ = fmt
 
     return Instruction
 
 instructions = [
     InsnType('00E0', 'clear'),
-    InsnType('00EE', 'return', next=()),
-    InsnType('1ooo', 'jump {l}', next=('o')),
+    InsnType('00EE', 'return', branch=()),
+    InsnType('1ooo', 'jump {l}', branch=('o')),
     InsnType('2ooo', '{l}', call=('o')),
-    InsnType('3xnn', 'if {x} != {n} then \\', next=(2, 4)),
-    InsnType('4xnn', 'if {x} == {n} then \\', next=(2, 4)),
-    InsnType('5xy0', 'if {x} != {y} then \\', next=(2, 4)),
+    InsnType('3xnn', 'if {x} != {n} then \\', branch=(2, 4)),
+    InsnType('4xnn', 'if {x} == {n} then \\', branch=(2, 4)),
+    InsnType('5xy0', 'if {x} != {y} then \\', branch=(2, 4)),
     InsnType('6xnn', '{x} := {n}'),
     InsnType('7xnn', '{x} += {n}'),
     InsnType('8xy0', '{x} := {y}'),
@@ -73,13 +81,13 @@ instructions = [
     InsnType('8xy6', '{x} >>= {y}'),
     InsnType('8xy7', '{x} =- {y}'),
     InsnType('8xyE', '{x} <<= {y}'),
-    InsnType('9xy0', 'if {x} == {y} then \\', next=(2, 4)),
+    InsnType('9xy0', 'if {x} == {y} then \\', branch=(2, 4)),
     InsnType('Aooo', 'i := {l}'),
     InsnType('Booo', 'jump0 {l}'),
     InsnType('Cxvv', '{x} := random 0b{v:b}'),
     InsnType('Dxyn', 'sprite {x} {y} {n}'),
-    InsnType('Ex9E', 'if {x} -key then \\', next=(2, 4)),
-    InsnType('ExA1', 'if {x} key then \\', next=(2, 4)),
+    InsnType('Ex9E', 'if {x} -key then \\', branch=(2, 4)),
+    InsnType('ExA1', 'if {x} key then \\', branch=(2, 4)),
     InsnType('Fx07', '{x} := delay'),
     InsnType('Fx0A', '{x} := key'),
     InsnType('Fx15', 'delay := {x}'),
