@@ -5,7 +5,7 @@ class Instruction(object):
     def __init__(self, addr, args, engine):
         self.addr = addr
         self.args = args
-        self.fmt_args = self.fmt_args(args, engine)
+        self.args_formatted = self.fmt_args(args, engine)
         self.next = []
         if self.call_:
             engine.add_call(addr, args[self.call_])
@@ -19,18 +19,18 @@ class Instruction(object):
                 engine.add_branch(self.addr, target)
 
     def __str__(self):
-        return self.fmt_.format(**self.fmt_args)
+        def rep(m):
+            val = self.args_formatted.get(m.group(1), m.group(1))
+            fmt = m.group(2)
+            if fmt:
+                if fmt == 'b':
+                    return bin(val)
+                raise ValueError(fmt)
+            return str(val)
+        return re.sub(r'(\w+)(?::(\w+))?', rep, self.fmt_)
 
     def fmt_args(self, args, engine):
-        ret = dict(args)
-        for k, v in args.iteritems():
-            if k == 'x' or k == 'y':
-                ret[k] = 'v{:X}'.format(v)
-            elif k == 'n':
-                ret[k] = v - (0x100 if v > 0xE0 else 0)
-            elif k == 'o':
-                ret['l'] = engine.get_label(v, self.addr)
-        return ret
+        return dict(args)
 
     def __repr__(self):
         return str(self)
