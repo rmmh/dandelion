@@ -1,102 +1,52 @@
-import re
+import machine
 
 
-class InvalidOpcode(Exception):
-    pass
-
-
-class Chip8Instruction(object):
-
-    def __init__(self, addr, args, engine):
-        self.length = 2
-        self.addr = addr
-        self.args = args
-        self.fmt_args = self.fmt_args(args, engine)
-        self.next = []
-        if self.call_:
-            engine.add_call(addr, args[self.call_])
-        if self.branch_ is not None:
-            for offset in self.branch_:
-                if isinstance(offset, int):
-                    target = addr + offset
-                else:
-                    target = args[offset]
-                self.next.append(target)
-                engine.add_branch(self.addr, target)
-
-    def __str__(self):
-        return self.fmt_.format(**self.fmt_args)
-
-    def fmt_args(self, args, engine):
-        ret = dict(args)
-        for k, v in args.iteritems():
-            if k == 'x' or k == 'y':
-                ret[k] = 'v{:X}'.format(v)
-            elif k == 'n':
-                ret[k] = v - (0x100 if v > 0xE0 else 0)
-            elif k == 'o':
-                ret['l'] = engine.get_label(v, self.addr)
-        return ret
-
-    def __repr__(self):
-        return str(self)
-
-    def __len__(self):
-        return self.length
-
-    def does_control_flow(self):
-        return self.branch_ is not None
-
-
-def InsnType(encoding, fmt, branch=None, call=None):
-    def par_rep(m):
-        return '(?P<' + m.group(1) + '>' + '.' * len(m.group(0)) + ')'
-    pat_re = re.sub(r'([a-z])(\1*)', par_rep, encoding)
-
-    class Instruction(Chip8Instruction):
-        match = re.compile(pat_re).match
+def insn(encoding, fmt, branch=None, call=None):
+    class Chip8Instruction(machine.Instruction):
+        length = 2
+        match = machine.build_matcher(encoding)
         encoding_ = encoding
         call_ = call
         branch_ = branch
         fmt_ = fmt
 
-    return Instruction
+    return Chip8Instruction
 
 instructions = [
-    InsnType('00E0', 'clear'),
-    InsnType('00EE', 'return', branch=()),
-    InsnType('1ooo', 'jump {l}', branch=('o')),
-    InsnType('2ooo', '{l}', call=('o')),
-    InsnType('3xnn', 'if {x} != {n} then \\', branch=(2, 4)),
-    InsnType('4xnn', 'if {x} == {n} then \\', branch=(2, 4)),
-    InsnType('5xy0', 'if {x} != {y} then \\', branch=(2, 4)),
-    InsnType('6xnn', '{x} := {n}'),
-    InsnType('7xnn', '{x} += {n}'),
-    InsnType('8xy0', '{x} := {y}'),
-    InsnType('8xy1', '{x} |= {y}'),
-    InsnType('8xy2', '{x} &= {y}'),
-    InsnType('8xy3', '{x} ^= {y}'),
-    InsnType('8xy4', '{x} += {y}'),
-    InsnType('8xy5', '{x} -= {y}'),
-    InsnType('8xy6', '{x} >>= {y}'),
-    InsnType('8xy7', '{x} =- {y}'),
-    InsnType('8xyE', '{x} <<= {y}'),
-    InsnType('9xy0', 'if {x} == {y} then \\', branch=(2, 4)),
-    InsnType('Aooo', 'i := {l}'),
-    InsnType('Booo', 'jump0 {l}'),
-    InsnType('Cxvv', '{x} := random 0b{v:b}'),
-    InsnType('Dxyn', 'sprite {x} {y} {n}'),
-    InsnType('Ex9E', 'if {x} -key then \\', branch=(2, 4)),
-    InsnType('ExA1', 'if {x} key then \\', branch=(2, 4)),
-    InsnType('Fx07', '{x} := delay'),
-    InsnType('Fx0A', '{x} := key'),
-    InsnType('Fx15', 'delay := {x}'),
-    InsnType('Fx18', 'buzzer := {x}'),
-    InsnType('Fx1E', 'i += {x}'),
-    InsnType('Fx29', 'i := hex {x}'),
-    InsnType('Fx33', 'bcd {x}'),
-    InsnType('Fx55', 'save {x}'),
-    InsnType('Fx65', 'load {x}'),
+    insn('00E0', 'clear'),
+    insn('00EE', 'return', branch=()),
+    insn('1ooo', 'jump {l}', branch=('o')),
+    insn('2ooo', '{l}', call=('o')),
+    insn('3xnn', 'if {x} != {n} then \\', branch=(2, 4)),
+    insn('4xnn', 'if {x} == {n} then \\', branch=(2, 4)),
+    insn('5xy0', 'if {x} != {y} then \\', branch=(2, 4)),
+    insn('6xnn', '{x} := {n}'),
+    insn('7xnn', '{x} += {n}'),
+    insn('8xy0', '{x} := {y}'),
+    insn('8xy1', '{x} |= {y}'),
+    insn('8xy2', '{x} &= {y}'),
+    insn('8xy3', '{x} ^= {y}'),
+    insn('8xy4', '{x} += {y}'),
+    insn('8xy5', '{x} -= {y}'),
+    insn('8xy6', '{x} >>= {y}'),
+    insn('8xy7', '{x} =- {y}'),
+    insn('8xyE', '{x} <<= {y}'),
+    insn('9xy0', 'if {x} == {y} then \\', branch=(2, 4)),
+    insn('Aooo', 'i := {l}'),
+    insn('Booo', 'jump0 {l}'),
+    insn('Cxvv', '{x} := random 0b{v:b}'),
+    insn('Dxyn', 'sprite {x} {y} {n}'),
+    insn('Ex9E', 'if {x} -key then \\', branch=(2, 4)),
+    insn('ExA1', 'if {x} key then \\', branch=(2, 4)),
+    insn('Fx07', '{x} := delay'),
+    insn('Fx0A', '{x} := key'),
+    insn('Fx15', 'delay := {x}'),
+    insn('Fx18', 'buzzer := {x}'),
+    insn('Fx1E', 'i += {x}'),
+    insn('Fx29', 'i := hex {x}'),
+    insn('Fx33', 'bcd {x}'),
+    insn('Fx55', 'save {x}'),
+    insn('Fx65', 'load {x}'),
 ]
 
 
@@ -110,4 +60,4 @@ def decode(addr, mem, engine):
             m = {k: int(v, 16) for k, v
                  in m.groupdict().iteritems()}
             return insn(addr, m, engine)
-    raise InvalidOpcode(word_hex)
+    raise machine.InvalidOpcode(word_hex)
