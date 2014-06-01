@@ -13,6 +13,8 @@ class Instruction(object):
             for offset in self.branch_:
                 if isinstance(offset, int):
                     target = addr + offset
+                elif offset == 'return':
+                    target = offset
                 else:
                     target = args[offset]
                 self.next.append(target)
@@ -50,6 +52,6 @@ def build_matcher(pat):
         if m.group(1) is not None:
             return '(?P<%s>%s)' % (m.group(1), '.' * int(m.group(2)))
         return '(?P<' + m.group(3) + '>' + '.' * len(m.group(0)) + ')'
-    pat_re = re.sub(r'(s?imm(\d+))|([a-z])(\3*)', par_rep, pat.replace(' ',''))
-    print 'build_matcher', pat, '->', pat_re
+    pat_re = re.sub(r'((?:s?imm|addr)(\d+))|([a-z])(\3*)', par_rep, pat.replace(' ',''))
+    #print 'build_matcher', pat, '->', pat_re
     return re.compile(pat_re).match

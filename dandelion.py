@@ -118,6 +118,7 @@ class Analyzer(object):
         self.label_n = 0
         self.refs = collections.defaultdict(list)
         self.xrefs = collections.defaultdict(list)
+        self.use_proto = False
 
     def code_ref(self, addr):
         self.worklist.append(addr)
@@ -125,10 +126,13 @@ class Analyzer(object):
     def analyze(self):
         while self.worklist:
             addr = self.worklist.pop()
+            if addr == 'return':
+                continue
             while True:
-                if self.code.get(addr):
+                if self.code.get(addr) or self.mem.get(addr) is None:
                     break
                 insn = self.decoder(addr, self.mem, self)
+                # print addr, insn, insn.next, insn.args
                 self.code[addr] = insn
                 if insn.does_control_flow():
                     break
@@ -151,8 +155,13 @@ class Analyzer(object):
         return False
 
     def add_call(self, src, target):
+        self.get_label(target, src)
         self.add_ref(src, target, 'call')
         self.code_ref(target)
+
+    def define_subroutine(self, addr, name):
+        self.get_label(addr, 0, name)
+        self.add_call(0, addr)
 
     def get_label(self, addr, xref, name=None):
         if addr in self.labels:
@@ -191,7 +200,7 @@ class Analyzer(object):
         def get_bb(pos, label=None):
             if pos not in bbs:
                 if label is None:
-                    label = 'C%d' % pos
+                    label = 'C%s' % pos
                 bb = BasicBlock(pos, label)
                 worklist.append(bb)
                 bbs[pos] = bb
@@ -209,8 +218,12 @@ class Analyzer(object):
         while worklist:
             bb = worklist.pop()
             pos = bb.addr
+            if pos == 'return':
+                continue
             if self.get_xref(pos, 'call'):
                 bb_entry = BasicBlock(None, '%s_ENTRY' % bb.label)
+                bb_exit = BasicBlock(None, '%s_EXIT' % bb.label)
+                bbs['return'] = bb_exit
                 linkto(bb_entry, bb)
                 bbs[-pos] = bb_entry
             while True:
@@ -239,8 +252,7 @@ class Analyzer(object):
                 return '%s..%s' % (bbs[0].label, bbs[-1].label)
             return '/'.join(str(bb.label) for bb in bbs)
 
-        for pos, bb in sorted(bbs.iteritems()):
-            print '#', bb, labels(doms[bb])
+        # for pos, bb in sorted(bbs.iteritems()): print '#', bb, labels(doms[bb])
 
         loop_points = set()
         again_points = set()
@@ -250,17 +262,21 @@ class Analyzer(object):
             print '# HEAD:', str(head.label), labels(loop.body, True), labels(loop.back_nested),
             if loop.back - loop.back_nested:
                 loop_point = loop.head
-                again_point = max(loop.back - loop.back_nested, key=lambda x: x.addr)
+                again_point = max(
+                    loop.back - loop.back_nested, key=lambda x: x.addr)
                 loop_points.add(loop_point.addr)
                 again_points.add(again_point.addr)
                 print loop_point.label, '...', again_point.label,
             print
 
+        loop_points = set()
+        again_points = set()
 
         out = ''
-        for pos, label in sorted(self.labels.iteritems()):
-            if any(label.addr > use for use in label.uses):
-                out += ':proto %s # %X\n' % (label, pos)
+        if self.use_proto:
+            for pos, label in sorted(self.labels.iteritems()):
+                if any(label.addr > use for use in label.uses):
+                    out += ':proto %s # %X\n' % (label, pos)
 
         addr_iter = self.mem.addrs()
         labels_emitted = set()
@@ -281,8 +297,10 @@ class Analyzer(object):
                     out += indent + 'loop\n'
                     indent_count += 2
                     indent = ' ' * indent_count
-            if addr in self.code and addr + 1 not in self.labels:
+            # TODO: fix SMC
+            if addr in self.code:  # and addr + 1 not in self.labels:
                 # addr + 1 in self.labels indicates self-modifying code
+                insn = self.code[addr]
                 if addr in again_points:
                     if out.endswith('\\\n'):
                         out = out[:-2] + '\n'
@@ -290,12 +308,13 @@ class Analyzer(object):
                     indent = ' ' * indent_count
                     out += indent + 'again\n'
                 else:
-                    out += indent + '%s\n' % self.code[addr]
-                addr_iter.next()
+                    out += indent + '%s\n' % insn
+                for _ in xrange(1, insn.length):
+                    addr_iter.next()
             else:
                 out += hex(val) + ' '
-                if addr - 1 in self.code:
-                    out += ' # SMC: %s\n' % self.code[addr - 1]
+                #if addr - 1 in self.code:
+                #    out += ' # SMC: %s\n' % self.code[addr - 1]
             # out += '# %x\n' % addr
         for pos, label in sorted(self.labels.iteritems()):
             if pos < 0x200:
@@ -309,7 +328,7 @@ class Analyzer(object):
         labels_missed = set(self.labels) - labels_emitted
         if labels_missed:
             out += '# missed labels: %s' % ', '.join(
-                str(self.labels[l]) for l in sorted(labels_missed))
+                '{0} {0.addr:X}'.format(self.labels[l]) for l in sorted(labels_missed))
 
         return re.sub(r'(\w) +(\w)', r'\1 \2', out.replace('\\\n', ''))
 
@@ -319,21 +338,40 @@ def decompile_chip8(data):
     mem = MemoryMap()
     mem.load_segment(0x200, data)
     ana = Analyzer(chip8.decode, mem)
-    ana.get_label(0x200, 0x200, 'main')
-    ana.add_call(0x200, 0x200)
+    ana.define_subroutine(0x200, 'main')
     ana.analyze()
+    ana.use_proto = True
     return ana.dump()
+
 
 def decompile_gameboy(data):
     import gameboy
     mem = MemoryMap()
     mem.load_segment(0x0, data)
     ana = Analyzer(gameboy.decode, mem)
+    for addr, label in ((0x40, '_int_vblank'),
+        (0x48, '_int_lcdstat'),
+        (0x50, '_int_timer'),
+        (0x58, '_int_serial'),
+        (0x60, '_int_joypad'),
+        (0x100, '_init')):
+        ana.define_subroutine(addr, label)
+    ana.analyze()
+    return ana.dump()
+
     addr = 0
+    for op in range(256):
+        mem.segments[0][1][:3] = [op, 0x34, 0x12]
+        # print '{:02X}'.format(op),
+        try:
+            print gameboy.decode(0, mem, ana)
+        except Exception, e:
+            print
     while addr < len(data):
         try:
             insn = gameboy.decode(addr, mem, ana)
-            opcodes = ''.join('{:02X}'.format(mem.get(addr+x)) for x in xrange(insn.length))
+            opcodes = ''.join('{:02X}'.format(mem.get(addr + x))
+                              for x in xrange(insn.length))
             print opcodes.ljust(6), insn
             addr += insn.length
         except Exception, e:
@@ -344,10 +382,10 @@ if __name__ == '__main__':
     import sys
     for fname in sys.argv[1:]:
         data = map(ord, open(fname, 'rb').read())
+        print '# INPUT:', fname
         if fname.endswith('.ch8'):
-            print '# INPUT:', fname
             print decompile_chip8(data)
         elif fname.endswith('.gb'):
             print decompile_gameboy(data)
         else:
-            print "No handlers for file", fname
+            print "# No handlers for file", fname
