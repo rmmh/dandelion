@@ -47,5 +47,9 @@ class InvalidOpcode(Exception):
 
 def build_matcher(pat):
     def par_rep(m):
-        return '(?P<' + m.group(1) + '>' + '.' * len(m.group(0)) + ')'
-    return re.compile(re.sub(r'([a-z])(\1*)', par_rep, pat)).match
+        if m.group(1) is not None:
+            return '(?P<%s>%s)' % (m.group(1), '.' * int(m.group(2)))
+        return '(?P<' + m.group(3) + '>' + '.' * len(m.group(0)) + ')'
+    pat_re = re.sub(r'(s?imm(\d+))|([a-z])(\3*)', par_rep, pat.replace(' ',''))
+    print 'build_matcher', pat, '->', pat_re
+    return re.compile(pat_re).match

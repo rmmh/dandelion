@@ -324,9 +324,30 @@ def decompile_chip8(data):
     ana.analyze()
     return ana.dump()
 
+def decompile_gameboy(data):
+    import gameboy
+    mem = MemoryMap()
+    mem.load_segment(0x0, data)
+    ana = Analyzer(gameboy.decode, mem)
+    addr = 0
+    while addr < len(data):
+        try:
+            insn = gameboy.decode(addr, mem, ana)
+            opcodes = ''.join('{:02X}'.format(mem.get(addr+x)) for x in xrange(insn.length))
+            print opcodes.ljust(6), insn
+            addr += insn.length
+        except Exception, e:
+            print e
+            addr += 1
+
 if __name__ == '__main__':
     import sys
     for fname in sys.argv[1:]:
         data = map(ord, open(fname, 'rb').read())
-        print '# INPUT:', fname
-        print decompile_chip8(data)
+        if fname.endswith('.ch8'):
+            print '# INPUT:', fname
+            print decompile_chip8(data)
+        elif fname.endswith('.gb'):
+            print decompile_gameboy(data)
+        else:
+            print "No handlers for file", fname
