@@ -346,37 +346,8 @@ def decompile_chip8(data):
 
 def decompile_gameboy(data):
     import gameboy
-    mem = MemoryMap()
-    mem.load_segment(0x0, data)
-    ana = Analyzer(gameboy.decode, mem)
-    for addr, label in ((0x40, '_int_vblank'),
-        (0x48, '_int_lcdstat'),
-        (0x50, '_int_timer'),
-        (0x58, '_int_serial'),
-        (0x60, '_int_joypad'),
-        (0x100, '_init')):
-        ana.define_subroutine(addr, label)
-    ana.analyze()
-    return ana.dump()
-
-    addr = 0
-    for op in range(256):
-        mem.segments[0][1][:3] = [op, 0x34, 0x12]
-        # print '{:02X}'.format(op),
-        try:
-            print gameboy.decode(0, mem, ana)
-        except Exception, e:
-            print
-    while addr < len(data):
-        try:
-            insn = gameboy.decode(addr, mem, ana)
-            opcodes = ''.join('{:02X}'.format(mem.get(addr + x))
-                              for x in xrange(insn.length))
-            print opcodes.ljust(6), insn
-            addr += insn.length
-        except Exception, e:
-            print e
-            addr += 1
+    ana = Analyzer(gameboy.decode, MemoryMap())
+    return gameboy.decompile(ana, data)
 
 if __name__ == '__main__':
     import sys

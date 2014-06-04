@@ -8,6 +8,66 @@ reg_groups = {
 }
 reg_groups['y'] = reg_groups['x']
 
+io_ports = {
+    # these names aren't the same as the official documentation,
+    # but they're significantly more readable.
+    0xFF00: 'JOYPAD',
+    0xFF01: 'SERIAL_DATA',
+    0xFF02: 'SERIAL_CTL',
+    0xFF04: 'TIMER_DIVIDER',
+    0xFF05: 'TIMER_COUNTER',
+    0xFF06: 'TIMER_MODULO',
+    0xFF07: 'TIMER_CTL',
+    0xFF10: 'SND_CH1_SWEEP',
+    0xFF11: 'SND_CH1_LENGTH',
+    0xFF12: 'SND_CH1_VOLUME_ENVELOPE',
+    0xFF13: 'SND_CH1_FREQ_LO',
+    0xFF14: 'SND_CH1_FREQ_HI',
+    0xFF16: 'SND_CH2_LENGTH',
+    0xFF17: 'SND_CH2_VOLUME_ENVELOPE',
+    0xFF18: 'SND_CH2_FREQ_LO',
+    0xFF19: 'SND_CH2_FREQ_HI',
+    0xFF1A: 'SND_CH3_ON',
+    0xFF1B: 'SND_CH3_LENGTH',
+    0xFF1C: 'SND_CH3_VOLUME',
+    0xFF1D: 'SND_CH3_FREQ_LO',
+    0xFF1E: 'SND_CH3_FREQ_HI',
+    0xFF20: 'SND_CH4_LENGTH',
+    0xFF21: 'SND_CH4_VOLUME_ENVELOPE',
+    0xFF22: 'SND_CH4_SWITCH_FREQUENCY',
+    0xFF23: 'SND_CH4_COUNTER',
+    0xFF24: 'SND_OUTPUT_VOLUME',
+    0xFF25: 'SND_OUTPUT_MIX',
+    0xFF26: 'SND_ON',
+    0xFF40: 'LCD_CTL',
+    0xFF41: 'LCD_STAT',
+    0xFF42: 'LCD_BG_SCROLLY',
+    0xFF43: 'LCD_BG_SCROLLX',
+    0xFF44: 'LCD_LINE',
+    0xFF45: 'LCD_LINE_COMPARE',
+    0xFF46: 'LCD_OAM_DMA_BEGIN',
+    0xFF47: 'LCD_BG_PALETTE',
+    0xFF48: 'LCD_OBJ_PALETTE0',
+    0xFF49: 'LCD_OBJ_PALETTE1',
+    0xFF4A: 'LCD_WINDOW_Y',
+    0xFF4B: 'LCD_WINDOW_XMINUS7',
+    0xFF4D: 'CGB_SPEED_PREP',
+    0xFF4F: 'LCD_VRAM_BANK',
+    0xFF51: 'LCD_VRAM_DMA_SRC_HI',
+    0xFF52: 'LCD_VRAM_DMA_SRC_LO',
+    0xFF53: 'LCD_VRAM_DMA_DST_HI',
+    0xFF54: 'LCD_VRAM_DMA_DST_LO',
+    0xFF55: 'LCD_VRAM_DMA_START',
+    0xFF56: 'CGB_INFRARED',
+    0xFF68: 'LCD_BG_PALETTE_IDX',
+    0xFF69: 'LCD_BG_PALETTE_DATA',
+    0xFF6A: 'LCD_OBJ_PALETTE_IDX',
+    0xFF6B: 'LCD_OBJ_PALETTE_DATA',
+    0xFF70: 'CGB_WRAM_BANK',
+    0xFF0F: 'INTERRUPT_FLAG',
+    0xFFFF: 'INTERRUPT_ENABLE'
+}
+
 
 class LR35902Instruction(machine.Instruction):
 
@@ -26,7 +86,10 @@ class LR35902Instruction(machine.Instruction):
             elif k == 'addr16':
                 ret[k] = engine.get_label(v, self.addr)
             elif 'imm' in k:
-                ret[k] = hex(v)
+                if self.fmt_.startswith('LDH'):
+                    ret[k] = io_ports.get(0xFF00 + v, hex(v))
+                else:
+                    ret[k] = hex(v)
             elif k == 'h':
                 ret[k] = '{:x}H'.format(v * 8)
         if self.branch_ and 'rel8' in self.branch_:
@@ -132,3 +195,35 @@ def decode(addr, mem, engine):
             swapb('addr16')
             return insn(addr, m, engine)
     raise machine.InvalidOpcode(addr, context_bin, '{:06X}'.format(context))
+
+
+def decompile(ana, data):
+    ana.mem.load_segment(0x0, data)
+    for addr, label in ((0x40, '_int_vblank'),
+                        (0x48, '_int_lcdstat'),
+                        (0x50, '_int_timer'),
+                        (0x58, '_int_serial'),
+                        (0x60, '_int_joypad'),
+                        (0x100, '_init')):
+        ana.define_subroutine(addr, label)
+    ana.analyze()
+    return ana.dump()
+
+    addr = 0
+    for op in range(256):
+        mem.segments[0][1][:3] = [op, 0x34, 0x12]
+        # print '{:02X}'.format(op),
+        try:
+            print gameboy.decode(0, mem, ana)
+        except Exception, e:
+            print
+    while addr < len(data):
+        try:
+            insn = gameboy.decode(addr, mem, ana)
+            opcodes = ''.join('{:02X}'.format(mem.get(addr + x))
+                              for x in xrange(insn.length))
+            print opcodes.ljust(6), insn
+            addr += insn.length
+        except Exception, e:
+            print e
+            addr += 1
