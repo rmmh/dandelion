@@ -43,6 +43,9 @@ class Instruction(object):
     def does_control_flow(self):
         return self.branch_ is not None
 
+    def get_predicate(self):
+        return None
+
 
 class InvalidOpcode(Exception):
     pass

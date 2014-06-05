@@ -118,6 +118,9 @@ def insn(encoding, fmt, branch=None, call=None):
         branch_ = branch
         fmt_ = fmt
 
+        def get_predicate(self):
+            return self.args_formatted.get('f')
+
     return Insn
 
 instructions = [

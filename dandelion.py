@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import collections
+import itertools
 import re
 
 
@@ -115,7 +116,7 @@ class Analyzer(object):
         self.decoder = decoder
         self.mem = mem
         self.labels = {}
-        self.label_n = 0
+        self.label_generator = ('L%d' % n for n in itertools.count())
         self.refs = collections.defaultdict(list)
         self.xrefs = collections.defaultdict(list)
         self.use_proto = False
@@ -155,13 +156,12 @@ class Analyzer(object):
         return False
 
     def add_call(self, src, target):
-        self.get_label(target, src)
         self.add_ref(src, target, 'call')
         self.code_ref(target)
 
     def define_subroutine(self, addr, name):
-        self.get_label(addr, 0, name)
-        self.add_call(0, addr)
+        self.get_label(addr, None, name)
+        self.add_call(None, addr)
 
     def get_label(self, addr, xref, name=None):
         if addr in self.labels:
@@ -169,29 +169,25 @@ class Analyzer(object):
             lab.uses.append(xref)
             return lab
         if name is None:
-            name = 'L%d' % self.label_n
-            self.label_n += 1
+            name = next(self.label_generator)
         ret = Label(name, addr, [xref])
         self.labels[addr] = ret
         return ret
 
     def rename_labels(self):
-        code_count = 1
-        data_count = 1
-        pred_count = 1
+        code_count = itertools.count(1)
+        data_count = itertools.count(1)
+        pred_count = itertools.count(1)
         for pos, label in sorted(self.labels.iteritems()):
             if not label.name.startswith('L'):
                 continue
             if label.addr in self.code:
                 if self.get_xref(label.addr, 'call'):
-                    label.name = 'Sub%d' % pred_count
-                    pred_count += 1
+                    label.name = 'Sub%d' % next(pred_count)
                 else:
-                    label.name = 'L%d' % code_count
-                    code_count += 1
+                    label.name = 'L%d' % next(code_count)
             else:
-                label.name = 'D%d' % data_count
-                data_count += 1
+                label.name = 'D%d' % next(data_count)
 
     def extract_cfg(self):
         bbs = {}
@@ -258,19 +254,15 @@ class Analyzer(object):
         again_points = set()
 
         print '# loops:'
-        for head, loop in natural_loops.iteritems():
+        for head, loop in sorted(natural_loops.iteritems(), key=lambda (k,v): k.addr):
             print '# HEAD:', str(head.label), labels(loop.body, True), labels(loop.back_nested),
             if loop.back - loop.back_nested:
                 loop_point = loop.head
                 again_point = max(
                     loop.back - loop.back_nested, key=lambda x: x.addr)
                 loop_points.add(loop_point.addr)
-                again_points.add(again_point.addr)
-                print loop_point.label, '...', again_point.label,
-            print
-
-        loop_points = set()
-        again_points = set()
+                again_points.add(again_point.code[-1].addr)
+                print loop_point.label, '...', again_point.label
 
         out = ''
         if self.use_proto:
@@ -297,7 +289,7 @@ class Analyzer(object):
                     out += indent + 'loop\n'
                     indent_count += 2
                     indent = ' ' * indent_count
-            # TODO: fix SMC
+            # TODO: fix SMC for chip8
             if addr in self.code:  # and addr + 1 not in self.labels:
                 # addr + 1 in self.labels indicates self-modifying code
                 insn = self.code[addr]
@@ -306,7 +298,10 @@ class Analyzer(object):
                         out = out[:-2] + '\n'
                     indent_count -= 2
                     indent = ' ' * indent_count
-                    out += indent + 'again\n'
+                    pred = insn.get_predicate() or ''
+                    if pred:
+                        pred = ' if %s' % pred
+                    out += indent + 'again%s # %s\n' % (pred, insn)
                 else:
                     out += indent + '%s\n' % insn
                 for _ in xrange(1, insn.length):
@@ -317,8 +312,6 @@ class Analyzer(object):
                 #    out += ' # SMC: %s\n' % self.code[addr - 1]
             # out += '# %x\n' % addr
         for pos, label in sorted(self.labels.iteritems()):
-            if pos < 0x200:
-                continue
             if pos > addr:
                 while pos > addr:
                     out += '0 '
