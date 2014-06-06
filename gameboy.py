@@ -210,23 +210,3 @@ def decompile(ana, data):
                         (0x100, '_init')):
         ana.define_subroutine(addr, label)
     ana.analyze()
-    return ana.dump()
-
-    addr = 0
-    for op in range(256):
-        mem.segments[0][1][:3] = [op, 0x34, 0x12]
-        # print '{:02X}'.format(op),
-        try:
-            print gameboy.decode(0, mem, ana)
-        except Exception, e:
-            print
-    while addr < len(data):
-        try:
-            insn = gameboy.decode(addr, mem, ana)
-            opcodes = ''.join('{:02X}'.format(mem.get(addr + x))
-                              for x in xrange(insn.length))
-            print opcodes.ljust(6), insn
-            addr += insn.length
-        except Exception, e:
-            print e
-            addr += 1

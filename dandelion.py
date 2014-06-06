@@ -121,6 +121,8 @@ class Analyzer(object):
         self.xrefs = collections.defaultdict(list)
         self.use_proto = False
 
+        self.bbs = {}
+
     def code_ref(self, addr):
         self.worklist.append(addr)
 
@@ -130,7 +132,10 @@ class Analyzer(object):
             if addr == 'return':
                 continue
             while True:
-                if self.code.get(addr) or self.mem.get(addr) is None:
+                if self.code.get(addr):
+                    break
+                if self.mem.get(addr) is None:
+                    print '# executing code at unknown memory loc 0x%x' % addr
                     break
                 insn = self.decoder(addr, self.mem, self)
                 # print addr, insn, insn.next, insn.args
@@ -181,15 +186,18 @@ class Analyzer(object):
         for pos, label in sorted(self.labels.iteritems()):
             if not label.name.startswith('L'):
                 continue
-            if label.addr in self.code:
-                if self.get_xref(label.addr, 'call'):
-                    label.name = 'Sub%d' % next(pred_count)
-                else:
-                    label.name = 'L%d' % next(code_count)
+            if self.get_xref(label.addr, 'call'):
+                label.name = 'Sub%d' % next(pred_count)
+            elif label.addr in self.code:
+                label.name = 'L%d' % next(code_count)
             else:
                 label.name = 'D%d' % next(data_count)
 
-    def extract_cfg(self):
+    def build_cfg(self, force=False):
+        if self.bbs and not force:
+            # don't rebuild
+            return
+
         bbs = {}
         worklist = []
 
@@ -235,10 +243,31 @@ class Analyzer(object):
                 if pos in self.labels or self.get_xref(pos, 'branch'):
                     linkto(bb, get_bb(pos))
                     break
-        return bbs
+
+        self.bbs = bbs
+
+    def find_common_sequences(self):
+        self.build_cfg()
+
+        pair_counts = collections.Counter((a.fmt_, b.fmt_)
+                for addr, bb in self.bbs.iteritems()
+                for a, b in zip(bb.code, bb.code[1:]))
+
+        triple_counts = collections.Counter((a.fmt_, b.fmt_, c.fmt_)
+                for addr, bb in self.bbs.iteritems()
+                for a, b, c in zip(bb.code, bb.code[1:], bb.code[2:]))
+
+        for pair, count in pair_counts.most_common(30):
+            print count, '\t'.join(pair)
+
+
+        print 'triples:'
+        for triple, count in triple_counts.most_common(30):
+            print count, '\t'.join(triple)
 
     def dump(self):
-        bbs = self.extract_cfg()
+        self.build_cfg()
+        bbs = self.bbs
         doms = find_dominators(bbs.values())
         natural_loops = extract_natural_loops(bbs, doms)
 
@@ -253,16 +282,16 @@ class Analyzer(object):
         loop_points = set()
         again_points = set()
 
-        print '# loops:'
+        # print '# loops:'
         for head, loop in sorted(natural_loops.iteritems(), key=lambda (k,v): k.addr):
-            print '# HEAD:', str(head.label), labels(loop.body, True), labels(loop.back_nested),
+            # print '# HEAD:', str(head.label), labels(loop.body, True), labels(loop.back_nested),
             if loop.back - loop.back_nested:
                 loop_point = loop.head
                 again_point = max(
                     loop.back - loop.back_nested, key=lambda x: x.addr)
                 loop_points.add(loop_point.addr)
                 again_points.add(again_point.code[-1].addr)
-                print loop_point.label, '...', again_point.label
+                # print loop_point.label, '...', again_point.label
 
         out = ''
         if self.use_proto:
@@ -307,20 +336,34 @@ class Analyzer(object):
                 for _ in xrange(1, insn.length):
                     addr_iter.next()
             else:
-                out += hex(val) + ' '
+                # don't output long runs of zeros
+                zero_addr = addr
+                while self.mem.get(zero_addr) == 0 and zero_addr not in self.labels:
+                    zero_addr += 1
+                zero_count = zero_addr - addr
+                if zero_count > 10:
+                    for _ in xrange(zero_count - 1):
+                        addr, val = addr_iter.next()
+                    out += '\n:org 0x%x\n' % (addr + 1)
+                else:
+                    out += hex(val) + ' '
                 #if addr - 1 in self.code:
                 #    out += ' # SMC: %s\n' % self.code[addr - 1]
             # out += '# %x\n' % addr
         for pos, label in sorted(self.labels.iteritems()):
             if pos > addr:
-                while pos > addr:
-                    out += '0 '
-                    addr += 1
+                if pos > addr + 10:
+                    out += '\n\n:org 0x%x\n' % pos
+                else:
+                    while pos > addr:
+                        addr += 1
+                        out += '0 '
+                addr = pos
                 out += '\n: %s 0 ' % label
                 labels_emitted.add(pos)
         labels_missed = set(self.labels) - labels_emitted
         if labels_missed:
-            out += '# missed labels: %s' % ', '.join(
+            out += '\n# missed labels: %s' % ', '.join(
                 '{0} {0.addr:X}'.format(self.labels[l]) for l in sorted(labels_missed))
 
         return re.sub(r'(\w) +(\w)', r'\1 \2', out.replace('\\\n', ''))
@@ -339,8 +382,11 @@ def decompile_chip8(data):
 
 def decompile_gameboy(data):
     import gameboy
+    global ana
     ana = Analyzer(gameboy.decode, MemoryMap())
-    return gameboy.decompile(ana, data)
+    gameboy.decompile(ana, data)
+    #print ana.find_common_sequences()
+    return ana.dump()
 
 if __name__ == '__main__':
     import sys
