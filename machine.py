@@ -20,6 +20,8 @@ class Instruction(object):
                 self.next.append(target)
                 engine.add_branch(self.addr, target)
 
+        self.defs, self.uses = self.get_defuses()
+
     def __str__(self):
         def rep(m):
             val = self.args_formatted.get(m.group(1), m.group(1))
@@ -29,7 +31,7 @@ class Instruction(object):
                     return bin(val)
                 raise ValueError(fmt)
             return str(val)
-        return re.sub(r'(\w+)(?::(\w+))?', rep, self.fmt_)
+        return re.sub(r'(\w+)(?::(\w+))?', rep, self.fmt_) + ' # ' + self.ud_str()
 
     def fmt_args(self, args, engine):
         return dict(args)
@@ -45,6 +47,15 @@ class Instruction(object):
 
     def get_predicate(self):
         return None
+
+    def get_uses(self):
+        return []
+
+    def get_defs(self):
+        return []
+
+    def ud_str(self):
+        return ' '.join(self.defs) + '/' + ' '.join(self.uses)
 
 
 class InvalidOpcode(Exception):

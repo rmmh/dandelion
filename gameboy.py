@@ -1,5 +1,7 @@
 import machine
 
+import re
+
 reg_groups = {
     'x': ['B', 'C', 'D', 'E', 'H', 'L', '(HL)', 'A'],
     'z': ['BC', 'DE', 'HL', 'SP'],
@@ -102,13 +104,37 @@ class LR35902Instruction(machine.Instruction):
         opt = opts.split('/')[num]
         self.fmt_ = opt + ' ' + tail.strip()
 
+    def _convert_ud(self, args):
+        ret = []
+        for var in args:
+            var = self.args_formatted.get(var, var)
+            if 'HL' in var:
+                ret.extend('HL')
+            elif var in reg_groups:
+                ret.extend(reg_groups[var])
+            else:
+                ret.append(var)
+        return ret
 
-def insn(encoding, fmt, branch=None, call=None):
+    def get_uses(self):
+        return self._convert_ud(self.uses_)
+
+    def get_defs(self):
+        return self._convert_ud(self.defs_)
+
+    def get_defuses(self):
+        return self._convert_ud(self.defs_), self._convert_ud(self.uses_)
+
+def insn(encoding, fmt, defuse='/', branch=None, call=None):
     length_ = 1
     if '8' in encoding:
         length_ = 2
     elif '16' in encoding:
         length_ = 3
+
+    reg_tok = re.compile(r'SP|PC|.')
+    defs, uses = map(reg_tok.findall, defuse.split('/'))
+
 
     class Insn(LR35902Instruction):
         length = length_
@@ -117,6 +143,8 @@ def insn(encoding, fmt, branch=None, call=None):
         call_ = call
         branch_ = branch
         fmt_ = fmt
+        uses_ = uses
+        defs_ = defs
 
         def get_predicate(self):
             return self.args_formatted.get('f')
@@ -130,51 +158,60 @@ instructions = [
     # x/y/z/w/f are register selections (see reg_groups above)
     # p selects an operation (separated by slashes)
     # h is only used in RST, and is first multiplied by 8
-    #     pattern    mnemonic
+    #     pattern    mnemonic def/use
+
+    # XXX def/use patterns are imprecise
     insn('00000000', 'NOP'),
     insn('00010000', 'STOP'),
-    insn('00zz0001 imm16', 'LD z,imm16'),
-    insn('00ww0010', 'LD (w),A'),
-    insn('00zzp011', 'INC/DEC z'),
-    insn('00xxx10p', 'INC/DEC x'),
-    insn('00xxx110 imm8', 'LD x,imm8'),
-    insn('00ppp111', 'RLCA/RRCA/RLA/RRA/DAA/CPL/SCF/CCF'),
-    insn('00001000 addr16', 'LD (addr16),SP'),
-    insn('00zz1001', 'ADD HL,z'),
-    insn('00ww1010', 'LD A,(w)'),
+    insn('00zz0001 imm16', 'LD z,imm16', 'z/'),
+    insn('00ww0010', 'LD (w),A', '/Aw'),
+    insn('00zzp011', 'INC/DEC z', 'zF/z'),
+    insn('00xxx10p', 'INC/DEC x', 'xF/x'),
+    insn('00xxx110 imm8', 'LD x,imm8', 'x/'),
+    insn('00110111', 'SCF', 'F/'),
+    insn('00111111', 'CCF', 'F/F'),
+    insn('0000p111', 'RLCA/RRCA', 'AF/A'),
+    insn('0001p111', 'RLA/RRA', 'AF/AF'),
+    insn('00ppp111', 'RLCA/RRCA/RLA/RRA/DAA/CPL/?/?', 'AF/AF'),
+    insn('00001000 addr16', 'LD (addr16),SP', '/SP'),
+    insn('00zz1001', 'ADD HL,z', 'HLF/z'),
+    insn('00ww1010', 'LD A,(w)', 'A/w'),
     insn('01110110', 'HALT'),  # would be LD (HL),(HL)
-    insn('01xxxyyy', 'LD x,y'),
-    insn('100ppxxx', 'ADD/ADC/SUB/SBC A,x'),
-    insn('101ppxxx', 'AND/XOR/OR/CP x'),
-    insn('110pp110 imm8', 'ADD/ADC/SUB/SBC A,imm8'),
-    insn('111pp110 imm8', 'AND/XOR/OR/CP imm8'),
-    insn('11hhh111', 'RST h'),  # RST 00h/RST 08h/.../RST 38h
-    insn('11100000 imm8', 'LDH (imm8),A'),
-    insn('11110000 imm8', 'LDH A,(imm8)'),
-    insn('11100010', 'LD (C),A'),
-    insn('11110011', 'LD A,(C)'),
-    insn('11101010 addr16', 'LD (addr16),A'),
-    insn('11111010 addr16', 'LD A,(addr16)'),
-    insn('11111000 simm8', 'LD HL,SP+simm8'),
-    insn('11111001', 'LD SP,HL'),
-    insn('11101001 simm8', 'ADD SP,simm8'),
-    insn('110ff100 addr16', 'CALL f,addr16', call='addr16'),
-    insn('11001101 addr16', 'CALL addr16', call='addr16'),
-    insn('110p1001', 'RET/RETI', branch=('return',)),
-    insn('11zz0p01', 'POP/PUSH z'),
-    insn('00011000 simm8', 'JR rel8', branch=('rel8',)),
-    insn('001ff000 simm8', 'JR f,rel8', branch=(2, 'rel8')),
-    insn('110ff000', 'RET f', branch=(1, 'return')),
-    insn('110ff010 addr16', 'JP f,addr16', branch=(3, 'addr16')),
-    insn('11000011 addr16', 'JP addr16', branch=('addr16',)),
-    insn('11100101', 'JP (HL)', branch=()),
+    insn('01xxxyyy', 'LD x,y', 'x/y'),
+    insn('100p0xxx', 'ADD/SUB A,x', 'AF/x'),
+    insn('100p1xxx', 'ADC/SBC A,x', 'AF/xF'),
+    insn('101ppxxx', 'AND/XOR/OR/CP x', 'AF/x'),
+    insn('110p0110 imm8', 'ADD/SUB A,imm8', 'AF/'),
+    insn('110p1110 imm8', 'ADC/SBC A,imm8', 'AF/F'),
+    insn('111pp110 imm8', 'AND/XOR/OR/CP imm8', 'AF/'),
+    insn('11hhh111', 'RST h', 'PCSP/PCSP'),  # RST 00h/RST 08h/.../RST 38h
+    insn('11100000 imm8', 'LDH (imm8),A', '/A'),
+    insn('11110000 imm8', 'LDH A,(imm8)', '/A'),
+    insn('11100010', 'LD (C),A', '/CA'),
+    insn('11110011', 'LD A,(C)', 'A/C'),
+    insn('11101010 addr16', 'LD (addr16),A', '/A'),
+    insn('11111010 addr16', 'LD A,(addr16)', 'A/'),
+    insn('11111000 simm8', 'LD HL,SP+simm8', 'HLF/SP'),
+    insn('11111001', 'LD SP,HL', 'SP/HL'),
+    insn('11101001 simm8', 'ADD SP,simm8', 'SPF/'),
+    insn('110ff100 addr16', 'CALL f,addr16', 'PCSP/FPCSP', call='addr16'),
+    insn('11001101 addr16', 'CALL addr16', 'PCSP/PCSP', call='addr16'),
+    insn('110p1001', 'RET/RETI', 'PCSP/SP', branch=('return',)),
+    insn('11zz0001', 'POP z', 'zSP/SP'),
+    insn('11zz0101', 'PUSH z', 'SP/SPz'),
+    insn('00011000 simm8', 'JR rel8', 'PC/PC', branch=('rel8',)),
+    insn('001ff000 simm8', 'JR f,rel8', 'PC/FPC', branch=(2, 'rel8')),
+    insn('110ff000', 'RET f', 'PCSP/FSP', branch=(1, 'return')),
+    insn('110ff010 addr16', 'JP f,addr16', 'PC/F', branch=(3, 'addr16')),
+    insn('11000011 addr16', 'JP addr16', 'PC/', branch=('addr16',)),
+    insn('11100101', 'JP (HL)', 'PC/HL', branch=()),
     insn('1111p011', 'DI/EI'),
 
     # Prefix CB (two-byte opcodes)
-    insn('11001011 00pppxxx', 'RLC/RRC/RL/RR/SLA/SRA/SWAP/SRL x'),
-    insn('11001011 01bbbxxx', 'BIT b,x'),
-    insn('11001011 10bbbxxx', 'RES b,x'),
-    insn('11001011 11bbbxxx', 'SET b,x'),
+    insn('11001011 00pppxxx', 'RLC/RRC/RL/RR/SLA/SRA/SWAP/SRL x', 'Fx/'),
+    insn('11001011 01bbbxxx', 'BIT b,x', 'Fx/x'),
+    insn('11001011 10bbbxxx', 'RES b,x', 'x/x'),
+    insn('11001011 11bbbxxx', 'SET b,x', 'x/x'),
 ]
 
 
