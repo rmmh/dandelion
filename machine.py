@@ -31,7 +31,7 @@ class Instruction(object):
                     return bin(val)
                 raise ValueError(fmt)
             return str(val)
-        return re.sub(r'(\w+)(?::(\w+))?', rep, self.fmt_) + ' # ' + self.ud_str()
+        return re.sub(r'(\w+)(?::(\w+))?', rep, self.fmt_) #+ ' # ' + self.ud_str()
 
     def fmt_args(self, args, engine):
         return dict(args)

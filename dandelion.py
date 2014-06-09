@@ -70,8 +70,24 @@ def find_dominators(bbs):
                 bb_doms[bb] = dom
     return bb_doms
 
-NaturalLoop = collections.namedtuple('NaturalLoop',
-                                     'head body back back_nested')
+
+class NaturalLoop(object):
+
+    def __init__(self, head, body):
+        self.head = head
+        self.body = body
+        self.back = set()
+        self.back_nested = set()
+
+    def get_head_addr(self):
+        return self.head.addr
+
+    def get_again_insn(self):
+        if self.back - self.back_nested:
+            again_point = max(self.back - self.back_nested,
+                              key=lambda x: x.addr)
+            return again_point.code[-1]
+        return None
 
 
 def extract_natural_loops(bbs, doms):
@@ -79,7 +95,7 @@ def extract_natural_loops(bbs, doms):
 
     def extract_loop(head, back):
         loop = natural_loops.setdefault(
-            head, NaturalLoop(head, {head}, set(), set()))
+            head, NaturalLoop(head, {head}))
         loop.back.add(back)
         stack = [back]
         while stack:
@@ -250,16 +266,15 @@ class Analyzer(object):
         self.build_cfg()
 
         pair_counts = collections.Counter((a.fmt_, b.fmt_)
-                for addr, bb in self.bbs.iteritems()
-                for a, b in zip(bb.code, bb.code[1:]))
+                                          for addr, bb in self.bbs.iteritems()
+                                          for a, b in zip(bb.code, bb.code[1:]))
 
         triple_counts = collections.Counter((a.fmt_, b.fmt_, c.fmt_)
-                for addr, bb in self.bbs.iteritems()
-                for a, b, c in zip(bb.code, bb.code[1:], bb.code[2:]))
+                                            for addr, bb in self.bbs.iteritems()
+                                            for a, b, c in zip(bb.code, bb.code[1:], bb.code[2:]))
 
         for pair, count in pair_counts.most_common(30):
             print count, '\t'.join(pair)
-
 
         print 'triples:'
         for triple, count in triple_counts.most_common(30):
@@ -277,21 +292,20 @@ class Analyzer(object):
                 return '%s..%s' % (bbs[0].label, bbs[-1].label)
             return '/'.join(str(bb.label) for bb in bbs)
 
-        # for pos, bb in sorted(bbs.iteritems()): print '#', bb, labels(doms[bb])
+        # for pos, bb in sorted(bbs.iteritems()): print '#', bb,
+        # labels(doms[bb])
 
         loop_points = set()
         again_points = set()
+        break_points = set()
 
         # print '# loops:'
-        for head, loop in sorted(natural_loops.iteritems(), key=lambda (k,v): k.addr):
-            # print '# HEAD:', str(head.label), labels(loop.body, True), labels(loop.back_nested),
-            if loop.back - loop.back_nested:
-                loop_point = loop.head
-                again_point = max(
-                    loop.back - loop.back_nested, key=lambda x: x.addr)
-                loop_points.add(loop_point.addr)
-                again_points.add(again_point.code[-1].addr)
-                # print loop_point.label, '...', again_point.label
+        for head, loop in sorted(natural_loops.iteritems(),
+                                 key=lambda (k, v): k.addr):
+            again_point = loop.get_again_insn()
+            if again_point:
+                loop_points.add(loop.get_head_addr())
+                again_points.add(again_point)
 
         out = ''
         if self.use_proto:
@@ -322,7 +336,7 @@ class Analyzer(object):
             if addr in self.code:  # and addr + 1 not in self.labels:
                 # addr + 1 in self.labels indicates self-modifying code
                 insn = self.code[addr]
-                if addr in again_points:
+                if insn in again_points:
                     if out.endswith('\\\n'):
                         out = out[:-2] + '\n'
                     indent_count -= 2
@@ -347,8 +361,8 @@ class Analyzer(object):
                     out += '\n:org 0x%x\n' % (addr + 1)
                 else:
                     out += hex(val) + ' '
-                #if addr - 1 in self.code:
-                #    out += ' # SMC: %s\n' % self.code[addr - 1]
+                # if addr - 1 in self.code:
+                # out += ' # SMC: %s\n' % self.code[addr - 1]
             # out += '# %x\n' % addr
         for pos, label in sorted(self.labels.iteritems()):
             if pos > addr:
@@ -385,7 +399,7 @@ def decompile_gameboy(data):
     global ana
     ana = Analyzer(gameboy.decode, MemoryMap())
     gameboy.decompile(ana, data)
-    #print ana.find_common_sequences()
+    # print ana.find_common_sequences()
     return ana.dump()
 
 if __name__ == '__main__':
