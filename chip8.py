@@ -14,6 +14,9 @@ class Chip8Instruction(machine.Instruction):
                 ret['l'] = engine.get_label(v, self.addr)
         return ret
 
+    def get_defuses(self):
+        return [], []
+
 def insn(encoding, fmt, branch=None, call=None):
     class Insn(Chip8Instruction):
         match = machine.build_matcher(encoding)
@@ -59,6 +62,17 @@ instructions = [
     insn('Fx33', 'bcd x'),
     insn('Fx55', 'save x'),
     insn('Fx65', 'load x'),
+
+    # SuperChip instructions
+    insn('00Cv', 'scroll-down v'),
+    insn('00FB', 'scroll-right'),
+    insn('00FC', 'scroll-left'),
+    insn('00FD', 'exit'),
+    insn('00FE', 'lores'),
+    insn('00FF', 'hires'),
+    insn('Fx75', 'saveflags x'),
+    insn('Fx85', 'loadflags x'),
+    insn('Fx30', 'i := bighex x'),
 ]
 
 

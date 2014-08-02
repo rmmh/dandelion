@@ -4,6 +4,14 @@ import collections
 import itertools
 import re
 
+import machine
+
+
+class Options(object):
+    org = False
+
+options = Options()
+
 
 class Label(object):
 
@@ -153,12 +161,17 @@ class Analyzer(object):
                 if self.mem.get(addr) is None:
                     print '# executing code at unknown memory loc 0x%x' % addr
                     break
-                insn = self.decoder(addr, self.mem, self)
-                # print addr, insn, insn.next, insn.args
-                self.code[addr] = insn
-                if insn.does_control_flow():
+                try:
+                    insn = self.decoder(addr, self.mem, self)
+                except machine.InvalidOpcode, e:
+                    print '# %r' % e
                     break
-                addr += len(insn)
+                else:
+                    # print addr, insn, insn.next, insn.args
+                    self.code[addr] = insn
+                    if insn.does_control_flow():
+                        break
+                    addr += len(insn)
 
         self.rename_labels()
 
@@ -247,7 +260,10 @@ class Analyzer(object):
                 linkto(bb_entry, bb)
                 bbs[-pos] = bb_entry
             while True:
-                insn = self.code[pos]
+                try:
+                    insn = self.code[pos]
+                except KeyError:
+                    break
                 bb.code.append(insn)
                 if insn.does_control_flow():
                     for succ_pos in insn.next:
@@ -292,6 +308,13 @@ class Analyzer(object):
                 return '%s..%s' % (bbs[0].label, bbs[-1].label)
             return '/'.join(str(bb.label) for bb in bbs)
 
+        def has_smc(addr):
+            insn = self.code[addr]
+            for off in xrange(1, insn.length):
+                if addr + off in self.labels:
+                    return True
+            return False
+
         # for pos, bb in sorted(bbs.iteritems()): print '#', bb,
         # labels(doms[bb])
 
@@ -332,9 +355,8 @@ class Analyzer(object):
                     out += indent + 'loop\n'
                     indent_count += 2
                     indent = ' ' * indent_count
-            # TODO: fix SMC for chip8
-            if addr in self.code:  # and addr + 1 not in self.labels:
-                # addr + 1 in self.labels indicates self-modifying code
+            is_code = addr in self.code
+            if is_code and not has_smc(addr):
                 insn = self.code[addr]
                 if insn in again_points:
                     if out.endswith('\\\n'):
@@ -344,36 +366,46 @@ class Analyzer(object):
                     pred = insn.get_predicate() or ''
                     if pred:
                         pred = ' if %s' % pred
-                    out += indent + 'again%s # %s\n' % (pred, insn)
+                    out += indent + 'again\n'
                 else:
                     out += indent + '%s\n' % insn
                 for _ in xrange(1, insn.length):
-                    addr_iter.next()
+                    addr, _ = addr_iter.next()
             else:
                 # don't output long runs of zeros
+                orig_addr = addr
                 zero_addr = addr
                 while self.mem.get(zero_addr) == 0 and zero_addr not in self.labels:
                     zero_addr += 1
                 zero_count = zero_addr - addr
-                if zero_count > 10:
+                if zero_count > 10 and options.org:
                     for _ in xrange(zero_count - 1):
                         addr, val = addr_iter.next()
                     out += '\n:org 0x%x\n' % (addr + 1)
                 else:
                     out += hex(val) + ' '
-                # if addr - 1 in self.code:
-                # out += ' # SMC: %s\n' % self.code[addr - 1]
+                if is_code:
+                    insn = self.code[orig_addr]
+                    for _ in xrange(1, insn.length):
+                        addr, val = addr_iter.next()
+                        if addr in self.labels:
+                            out += ': %s ' % self.labels[addr]
+                            labels_emitted.add(addr)
+                        out += hex(val) + ' '
+                    out += ' # SMC: %s\n' % self.code[orig_addr]
             # out += '# %x\n' % addr
+        # step past the end of the loop
+        addr += 1
         for pos, label in sorted(self.labels.iteritems()):
-            if pos > addr:
-                if pos > addr + 10:
+            if pos >= addr:
+                if pos > addr + 10 and options.org:
                     out += '\n\n:org 0x%x\n' % pos
                 else:
                     while pos > addr:
                         addr += 1
-                        out += '0 '
+                        out += '0 # FAKE\n'
                 addr = pos
-                out += '\n: %s 0 ' % label
+                out += '\n: %s ' % label
                 labels_emitted.add(pos)
         labels_missed = set(self.labels) - labels_emitted
         if labels_missed:
