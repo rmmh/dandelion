@@ -1,5 +1,7 @@
 import machine
 
+import logging
+
 class Chip8Instruction(machine.Instruction):
     length = 2
 
@@ -11,7 +13,11 @@ class Chip8Instruction(machine.Instruction):
             elif k == 'n':
                 ret[k] = v - (0x100 if v > 0xE0 else 0)
             elif k == 'o':
-                ret['l'] = engine.get_label(v, self.addr)
+                if v < 0x200:  # small number: probably not a label
+                    logging.warning('small offset: %s', v)
+                    ret['l'] = v
+                else:
+                    ret['l'] = engine.get_label(v, self.addr)
         return ret
 
     def get_defuses(self):
