@@ -403,7 +403,7 @@ class Analyzer(object):
                 else:
                     while pos > addr:
                         addr += 1
-                        out += '0 # FAKE\n'
+                        out += '0 '
                 addr = pos
                 out += '\n: %s ' % label
                 labels_emitted.add(pos)
@@ -429,6 +429,7 @@ def decompile_chip8(data):
 def decompile_gameboy(data):
     import gameboy
     global ana
+    options.org = True
     ana = Analyzer(gameboy.decode, MemoryMap())
     gameboy.decompile(ana, data)
     # print ana.find_common_sequences()

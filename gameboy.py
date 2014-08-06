@@ -88,6 +88,7 @@ class LR35902Instruction(machine.Instruction):
             elif k == 'addr16':
                 ret[k] = engine.get_label(v, self.addr)
             elif 'imm' in k:
+                ret['himm8'] = io_ports.get(0xFF00 + v, '0xFF00 + %x' % v)
                 if self.fmt_.startswith('LDH'):
                     ret[k] = io_ports.get(0xFF00 + v, hex(v))
                 else:
@@ -100,9 +101,9 @@ class LR35902Instruction(machine.Instruction):
         return ret
 
     def pick_fmt(self, num):
-        opts, tail = (self.fmt_ + ' ').split(' ', 1)
-        opt = opts.split('/')[num]
-        self.fmt_ = opt + ' ' + tail.strip()
+        def sub(m):
+            return m.group(0).split('/')[num]
+        self.fmt_ = re.sub(r'\S+/\S+', sub, self.fmt_)
 
     def _convert_ud(self, args):
         ret = []
@@ -125,7 +126,7 @@ class LR35902Instruction(machine.Instruction):
     def get_defuses(self):
         return self._convert_ud(self.defs_), self._convert_ud(self.uses_)
 
-def insn(encoding, fmt, defuse='/', branch=None, call=None):
+def insn(encoding, fmt, fmt_octo, defuse='/', branch=None, call=None):
     length_ = 1
     if '8' in encoding:
         length_ = 2
@@ -142,7 +143,8 @@ def insn(encoding, fmt, defuse='/', branch=None, call=None):
         encoding_ = encoding
         call_ = call
         branch_ = branch
-        fmt_ = fmt
+        fmt_ = fmt_octo
+        reg_groups['f'] = ['!zero', 'zero', '!carry', 'carry']
         uses_ = uses
         defs_ = defs
 
@@ -161,57 +163,60 @@ instructions = [
     #     pattern    mnemonic def/use
 
     # XXX def/use patterns are imprecise
-    insn('00000000', 'NOP'),
-    insn('00010000', 'STOP'),
-    insn('00zz0001 imm16', 'LD z,imm16', 'z/'),
-    insn('00ww0010', 'LD (w),A', '/Aw'),
-    insn('00zzp011', 'INC/DEC z', 'zF/z'),
-    insn('00xxx10p', 'INC/DEC x', 'xF/x'),
-    insn('00xxx110 imm8', 'LD x,imm8', 'x/'),
-    insn('00110111', 'SCF', 'F/'),
-    insn('00111111', 'CCF', 'F/F'),
-    insn('0000p111', 'RLCA/RRCA', 'AF/A'),
-    insn('0001p111', 'RLA/RRA', 'AF/AF'),
-    insn('00ppp111', 'RLCA/RRCA/RLA/RRA/DAA/CPL/?/?', 'AF/AF'),
-    insn('00001000 addr16', 'LD (addr16),SP', '/SP'),
-    insn('00zz1001', 'ADD HL,z', 'HLF/z'),
-    insn('00ww1010', 'LD A,(w)', 'A/w'),
-    insn('01110110', 'HALT'),  # would be LD (HL),(HL)
-    insn('01xxxyyy', 'LD x,y', 'x/y'),
-    insn('100p0xxx', 'ADD/SUB A,x', 'AF/x'),
-    insn('100p1xxx', 'ADC/SBC A,x', 'AF/xF'),
-    insn('101ppxxx', 'AND/XOR/OR/CP x', 'AF/x'),
-    insn('110p0110 imm8', 'ADD/SUB A,imm8', 'AF/'),
-    insn('110p1110 imm8', 'ADC/SBC A,imm8', 'AF/F'),
-    insn('111pp110 imm8', 'AND/XOR/OR/CP imm8', 'AF/'),
-    insn('11hhh111', 'RST h', 'PCSP/PCSP'),  # RST 00h/RST 08h/.../RST 38h
-    insn('11100000 imm8', 'LDH (imm8),A', '/A'),
-    insn('11110000 imm8', 'LDH A,(imm8)', '/A'),
-    insn('11100010', 'LD (C),A', '/CA'),
-    insn('11110011', 'LD A,(C)', 'A/C'),
-    insn('11101010 addr16', 'LD (addr16),A', '/A'),
-    insn('11111010 addr16', 'LD A,(addr16)', 'A/'),
-    insn('11111000 simm8', 'LD HL,SP+simm8', 'HLF/SP'),
-    insn('11111001', 'LD SP,HL', 'SP/HL'),
-    insn('11101001 simm8', 'ADD SP,simm8', 'SPF/'),
-    insn('110ff100 addr16', 'CALL f,addr16', 'PCSP/FPCSP', call='addr16'),
-    insn('11001101 addr16', 'CALL addr16', 'PCSP/PCSP', call='addr16'),
-    insn('110p1001', 'RET/RETI', 'PCSP/SP', branch=('return',)),
-    insn('11zz0001', 'POP z', 'zSP/SP'),
-    insn('11zz0101', 'PUSH z', 'SP/SPz'),
-    insn('00011000 simm8', 'JR rel8', 'PC/PC', branch=('rel8',)),
-    insn('001ff000 simm8', 'JR f,rel8', 'PC/FPC', branch=(2, 'rel8')),
-    insn('110ff000', 'RET f', 'PCSP/FSP', branch=(1, 'return')),
-    insn('110ff010 addr16', 'JP f,addr16', 'PC/F', branch=(3, 'addr16')),
-    insn('11000011 addr16', 'JP addr16', 'PC/', branch=('addr16',)),
-    insn('11100101', 'JP (HL)', 'PC/HL', branch=()),
-    insn('1111p011', 'DI/EI'),
+    insn('00000000', 'NOP', 'nop'),
+    insn('00010000', 'STOP', 'stop'),
+    insn('00zz0001 imm16', 'LD z,imm16', 'z := imm16', 'z/'),
+    insn('00ww0010', 'LD (w),A', '(w) := A', '/Aw'),
+    insn('00zzp011', 'INC/DEC z', 'z++/z--', 'zF/z'),
+    insn('00xxx10p', 'INC/DEC x', 'x++/x--', 'xF/x'),
+    insn('00xxx110 imm8', 'LD x,imm8', 'x := imm8', 'x/'),
+    insn('00110111', 'SCF', 'carry := 1', 'F/'),
+    insn('00111111', 'CCF', 'carry := !carry', 'F/F'),
+    insn('0000p111', 'RLCA/RRCA', 'rlca/rrca' 'AF/A'),
+    insn('0001p111', 'RLA/RRA', 'rla/rra', 'AF/AF'),
+    insn('00100111', 'DAA', 'daa', 'AF/AF'),
+    insn('00101111', 'CPL', 'A := ~A', 'AF/A'),
+    insn('00001000 addr16', 'LD (addr16),SP', '(addr16) := SP', '/SP'),
+    insn('00zz1001', 'ADD HL,z', 'HL += z', 'HLF/z'),
+    insn('00ww1010', 'LD A,(w)', 'A := (w)', 'A/w'),
+    insn('01110110', 'HALT', 'halt'),  # would be LD (HL),(HL)
+    insn('01xxxyyy', 'LD x,y', 'x := y', 'x/y'),
+    insn('100p0xxx', 'ADD/SUB A,x', 'A +=/-= x', 'AF/Ax'),
+    insn('100p1xxx', 'ADC/SBC A,x', 'A +c=/-c= x', 'AF/xF'),
+    insn('10111xxx', 'CP x', 'compare x', 'F/x'),
+    insn('101ppxxx', 'AND/XOR/OR/?? x', 'A &=/^=/|=/?? x', 'AF/Ax'),
+    insn('110p0110 imm8', 'ADD/SUB A,imm8', 'A +=/-= imm8', 'AF/A'),
+    insn('110p1110 imm8', 'ADC/SBC A,imm8', 'A +c=/-c= imm8', 'AF/AF'),
+    insn('11111110 imm8', 'CP imm8', 'compare imm8', 'F/A'),
+    insn('111pp110 imm8', 'AND/XOR/OR/?? imm8', 'A &=/^=/|=/?? imm8', 'AF/A'),
+    insn('11hhh111', 'RST h', 'reset h', 'PCSP/PCSP'),  # RST 00h/RST 08h/.../RST 38h
+    insn('11100000 imm8', 'LDH (imm8),A', '(himm8) := A', '/A'),
+    insn('11110000 imm8', 'LDH A,(imm8)', 'A := (himm8)', 'A/'),
+    insn('11100010', 'LD (C),A', '(0xFF00 + C) := A', '/CA'),
+    insn('11110011', 'LD A,(C)', 'A := (0xFF00 + C)', 'A/C'),
+    insn('11101010 addr16', 'LD (addr16),A', '(addr16) := A', '/A'),
+    insn('11111010 addr16', 'LD A,(addr16)', 'A := (addr16)', 'A/'),
+    insn('11111000 simm8', 'LD HL,SP+simm8', 'HL := SP + simm8', 'HLF/SP'),
+    insn('11111001', 'LD SP,HL', 'SP := HL', 'SP/HL'),
+    insn('11101001 simm8', 'ADD SP,simm8', 'SP += simm8', 'SPF/'),
+    insn('110ff100 addr16', 'CALL f,addr16', 'if f addr16', 'PCSP/FPCSP', call='addr16'),
+    insn('11001101 addr16', 'CALL addr16', 'addr16', 'PCSP/PCSP', call='addr16'),
+    insn('110p1001', 'RET/RETI', 'return/returni', 'PCSP/SP', branch=('return',)),
+    insn('11zz0001', 'POP z', 'pop z', 'zSP/SP'),
+    insn('11zz0101', 'PUSH z', 'push z', 'SP/SPz'),
+    insn('00011000 simm8', 'JR rel8', 'jumpr rel8', 'PC/PC', branch=('rel8',)),
+    insn('001ff000 simm8', 'JR f,rel8', 'if f jumpr rel8', 'PC/FPC', branch=(2, 'rel8')),
+    insn('110ff000', 'RET f', 'if f return', 'PCSP/FSP', branch=(1, 'return')),
+    insn('110ff010 addr16', 'JP f,addr16', 'if f jump addr16', 'PC/F', branch=(3, 'addr16')),
+    insn('11000011 addr16', 'JP addr16', 'jump addr16', 'PC/', branch=('addr16',)),
+    insn('11100101', 'JP (HL)', 'jump (HL)', 'PC/HL', branch=()),
+    insn('1111p011', 'DI/EI', 'interrupts-disable/interrupts-enable'),
 
     # Prefix CB (two-byte opcodes)
-    insn('11001011 00pppxxx', 'RLC/RRC/RL/RR/SLA/SRA/SWAP/SRL x', 'Fx/'),
-    insn('11001011 01bbbxxx', 'BIT b,x', 'Fx/x'),
-    insn('11001011 10bbbxxx', 'RES b,x', 'x/x'),
-    insn('11001011 11bbbxxx', 'SET b,x', 'x/x'),
+    insn('11001011 00pppxxx', 'RLC/RRC/RL/RR/SLA/SRA/SWAP/SRL x', 'rlc/rrc/rl/rr/sla/sra/swap/srl x', 'Fx/x'),
+    insn('11001011 01bbbxxx', 'BIT b,x', 'x & bit b', 'Fx/x'),
+    insn('11001011 10bbbxxx', 'RES b,x', 'x &~= bit b', 'x/x'),
+    insn('11001011 11bbbxxx', 'SET b,x', 'x |= bit b', 'x/x'),
 ]
 
 
