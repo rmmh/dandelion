@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import argparse
 import collections
 import itertools
 import re
@@ -138,7 +139,7 @@ def extract_natural_loops(bbs, doms):
 
 class Analyzer(object):
 
-    def __init__(self, decoder, mem):
+    def __init__(self, decoder, mem, options):
         self.code = {}
         self.worklist = []
         self.decoder = decoder
@@ -148,6 +149,7 @@ class Analyzer(object):
         self.refs = collections.defaultdict(list)
         self.xrefs = collections.defaultdict(list)
         self.use_proto = False
+        self.options = options
 
         self.bbs = {}
 
@@ -304,7 +306,11 @@ class Analyzer(object):
         self.build_cfg()
         bbs = self.bbs
         doms = find_dominators(bbs.values())
-        natural_loops = extract_natural_loops(bbs, doms)
+
+        if self.options.no_loop:
+            natural_loops = {}
+        else:
+            natural_loops = extract_natural_loops(bbs, doms)
 
         def labels(bbs, truncate=False):
             bbs = sorted(bbs, key=lambda x: x.addr)
@@ -374,7 +380,7 @@ class Analyzer(object):
                     pred = insn.get_predicate() or ''
                     if pred:
                         pred = ' if %s' % pred
-                    out += indent + 'again\n'
+                    out += indent + 'again # %s\n' % insn
                 else:
                     out += indent + '%s\n' % insn
                 for _ in xrange(1, insn.length):
@@ -423,34 +429,42 @@ class Analyzer(object):
         return re.sub(r'(\w) +(\w)', r'\1 \2', out.replace('\\\n', ''))
 
 
-def decompile_chip8(data):
+def decompile_chip8(data, options):
     import chip8
     mem = MemoryMap()
     mem.load_segment(0x200, data)
-    ana = Analyzer(chip8.decode, mem)
+    ana = Analyzer(chip8.decode, mem, options)
     ana.define_subroutine(0x200, 'main')
     ana.analyze()
     ana.use_proto = True
     return ana.dump()
 
 
-def decompile_gameboy(data):
+def decompile_gameboy(data, options):
     import gameboy
     global ana
     options.org = True
-    ana = Analyzer(gameboy.decode, MemoryMap())
+    ana = Analyzer(gameboy.decode, MemoryMap(), options)
     gameboy.decompile(ana, data)
     # print ana.find_common_sequences()
     return ana.dump()
 
-if __name__ == '__main__':
-    import sys
-    for fname in sys.argv[1:]:
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--no-loop', default=False, action='store_true',
+                        help="don't identify loop constructs")
+    parser.add_argument('files', nargs='*',
+                        help="files to disassemble")
+    args = parser.parse_args()
+    for fname in args.files:
         data = map(ord, open(fname, 'rb').read())
         print '# INPUT:', fname
         if fname.endswith('.ch8'):
-            print decompile_chip8(data)
+            print decompile_chip8(data, args)
         elif fname.endswith('.gb'):
-            print decompile_gameboy(data)
+            print decompile_gameboy(data, args)
         else:
             print "# No handlers for file", fname
+
+if __name__ == '__main__':
+    main()
