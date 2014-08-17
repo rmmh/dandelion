@@ -94,6 +94,10 @@ class NaturalLoop(object):
         if self.back - self.back_nested:
             again_point = max(self.back - self.back_nested,
                               key=lambda x: x.addr)
+            if again_point.addr < self.head.addr:
+                # nonlinear loop structure:
+                # backreference *before* header
+                return None
             return again_point.code[-1]
         return None
 
@@ -327,6 +331,10 @@ class Analyzer(object):
                                  key=lambda (k, v): k.addr):
             again_point = loop.get_again_insn()
             if again_point:
+                if has_smc(again_point.addr):
+                    # SMC is printed as bytes, so the 'again'
+                    # wouldn't be printed
+                    continue
                 loop_points.add(loop.get_head_addr())
                 again_points.add(again_point)
 
