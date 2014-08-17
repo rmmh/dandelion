@@ -90,7 +90,7 @@ class NaturalLoop(object):
     def get_head_addr(self):
         return self.head.addr
 
-    def get_again_insn(self):
+    def get_again_addr(self):
         if self.back - self.back_nested:
             again_point = max(self.back - self.back_nested,
                               key=lambda x: x.addr)
@@ -98,7 +98,7 @@ class NaturalLoop(object):
                 # nonlinear loop structure:
                 # backreference *before* header
                 return None
-            return again_point.code[-1]
+            return again_point.code[-1].addr
         return None
 
     def __repr__(self):
@@ -343,9 +343,9 @@ class Analyzer(object):
         # print '# loops:'
         for head, loop in sorted(natural_loops.iteritems(),
                                  key=lambda (k, v): k.addr):
-            again_point = loop.get_again_insn()
+            again_point = loop.get_again_addr()
             if again_point:
-                if has_smc(again_point.addr):
+                if has_smc(again_point):
                     # SMC is printed as bytes, so the 'again'
                     # wouldn't be printed
                     continue
@@ -383,7 +383,7 @@ class Analyzer(object):
             is_code = addr in self.code
             if is_code and not has_smc(addr):
                 insn = self.code[addr]
-                if insn in again_points:
+                if addr in again_points:
                     if out.endswith('\\\n'):
                         out = out[:-2] + '\n'
                     indent_count -= 2
@@ -436,9 +436,12 @@ class Analyzer(object):
                 out += '\n: %s ' % label
                 labels_emitted.add(pos)
         labels_missed = set(self.labels) - labels_emitted
+        labels_missed = {label for label in labels_missed
+                         if any(use not in again_points
+                                for use in self.labels[label].uses)}
         if labels_missed:
             out += '\n# missed labels: %s' % ', '.join(
-                '{0} {0.addr:X}'.format(self.labels[l]) for l in sorted(labels_missed))
+                '{0} {0.addr:X} {0.uses}'.format(self.labels[l]) for l in sorted(labels_missed))
 
         return re.sub(r'(\w) +(\w)', r'\1 \2', out.replace('\\\n', ''))
 
@@ -474,9 +477,17 @@ def main():
     parser.add_argument('files', nargs='*',
                         help="files to disassemble")
     args = parser.parse_args()
+    if len(args.files) > 10:
+        print '# INPUT FILE LISTING:'
+        for fname in args.files:
+            print '#', fname
+        print
+
     for fname in args.files:
         data = map(ord, open(fname, 'rb').read())
+        print '#' * 70
         print '# INPUT:', fname
+        print '#' * 70
         if fname.endswith('.ch8'):
             print decompile_chip8(data, args)
         elif fname.endswith('.gb'):
