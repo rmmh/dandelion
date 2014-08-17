@@ -374,7 +374,10 @@ class Analyzer(object):
                     out += ': %s \n' % label
                     labels_emitted.add(addr)
                 if is_loop:
-                    out += indent + 'loop # %s\n' % label
+                    out += indent + 'loop'
+                    if self.options.show_loop_labels:
+                        out += ' # %s' % label
+                    out += '\n'
                     indent_count += 2
                     indent = ' ' * indent_count
             is_code = addr in self.code
@@ -388,7 +391,10 @@ class Analyzer(object):
                     pred = insn.get_predicate() or ''
                     if pred:
                         pred = ' if %s' % pred
-                    out += indent + 'again # %s\n' % insn
+                    out += indent + 'again'
+                    if self.options.show_loop_labels:
+                        out += ' # %s' % label
+                    out += '\n'
                 else:
                     out += indent + '%s\n' % insn
                 for _ in xrange(1, insn.length):
@@ -461,6 +467,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--no-loop', default=False, action='store_true',
                         help="don't identify loop constructs")
+    parser.add_argument('--show-loop-labels', default=False, action='store_true',
+                        help="show labels of loop constructs")
     parser.add_argument('--dump-cfg', default=False, action='store_true')
     parser.add_argument('--dump-loops', default=False, action='store_true')
     parser.add_argument('files', nargs='*',
