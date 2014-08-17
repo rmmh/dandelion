@@ -81,7 +81,6 @@ def find_dominators(bbs):
 
 
 class NaturalLoop(object):
-
     def __init__(self, head, body):
         self.head = head
         self.body = body
@@ -102,6 +101,8 @@ class NaturalLoop(object):
             return again_point.code[-1]
         return None
 
+    def __repr__(self):
+        return 'NaturalLoop(head=%s, body=%s, back=%s, back_nested=%s)' % (self.head, self.body, self.back, self.back_nested)
 
 def extract_natural_loops(bbs, doms):
     natural_loops = {}
@@ -131,8 +132,9 @@ def extract_natural_loops(bbs, doms):
             if head1 is head2:
                 continue
             if head2 in loop1.body:
-                assert loop2.body.issubset(loop1.body)
-                loop1.back_nested.update(loop2.body & loop1.back)
+                for back in loop1.back:
+                    if head2 in doms[back]:
+                        loop1.back_nested.add(back)
 
     return natural_loops
 
@@ -325,12 +327,18 @@ class Analyzer(object):
                     return True
             return False
 
-        # for pos, bb in sorted(bbs.iteritems()): print '#', bb,
-        # labels(doms[bb])
+        if self.options.dump_cfg:
+            print '# CFG:'
+            for pos, bb in sorted(bbs.iteritems()):
+                print '#', bb, labels(doms[bb])
+
+        if self.options.dump_loops:
+            print '# LOOPS:'
+            for l in natural_loops.values():
+                print '#', l
 
         loop_points = set()
         again_points = set()
-        break_points = set()
 
         # print '# loops:'
         for head, loop in sorted(natural_loops.iteritems(),
@@ -366,7 +374,7 @@ class Analyzer(object):
                     out += ': %s \n' % label
                     labels_emitted.add(addr)
                 if is_loop:
-                    out += indent + 'loop\n'
+                    out += indent + 'loop # %s\n' % label
                     indent_count += 2
                     indent = ' ' * indent_count
             is_code = addr in self.code
@@ -453,6 +461,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--no-loop', default=False, action='store_true',
                         help="don't identify loop constructs")
+    parser.add_argument('--dump-cfg', default=False, action='store_true')
+    parser.add_argument('--dump-loops', default=False, action='store_true')
     parser.add_argument('files', nargs='*',
                         help="files to disassemble")
     args = parser.parse_args()
