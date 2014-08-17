@@ -355,7 +355,7 @@ class Analyzer(object):
         out = ''
         if self.use_proto:
             for pos, label in sorted(self.labels.iteritems()):
-                if any(label.addr > use for use in label.uses):
+                if any(label.addr > use for use in label.uses if use is not None):
                     out += ':proto %s # %X\n' % (label, pos)
 
         addr_iter = self.mem.addrs()
