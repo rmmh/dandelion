@@ -10,6 +10,11 @@ reg_groups = {
 }
 reg_groups['y'] = reg_groups['x']
 
+# octo syntax version
+reg_groups['f'] = ['!zero', 'zero', '!carry', 'carry']
+reg_groups['x'][reg_groups['x'].index('(HL)')] = '*HL'
+reg_groups['w'] = ['BC', 'DE', 'HL++', 'HL--']
+
 io_ports = {
     # these names aren't the same as the official documentation,
     # but they're significantly more readable.
@@ -144,7 +149,6 @@ def insn(encoding, fmt, fmt_octo, defuse='/', branch=None, call=None):
         call_ = call
         branch_ = branch
         fmt_ = fmt_octo
-        reg_groups['f'] = ['!zero', 'zero', '!carry', 'carry']
         uses_ = uses
         defs_ = defs
 
@@ -166,7 +170,7 @@ instructions = [
     insn('00000000', 'NOP', 'nop'),
     insn('00010000', 'STOP', 'stop'),
     insn('00zz0001 imm16', 'LD z,imm16', 'z := imm16', 'z/'),
-    insn('00ww0010', 'LD (w),A', '(w) := A', '/Aw'),
+    insn('00ww0010', 'LD (w),A', '*w := A', '/Aw'),
     insn('00zzp011', 'INC/DEC z', 'z++/z--', 'zF/z'),
     insn('00xxx10p', 'INC/DEC x', 'x++/x--', 'xF/x'),
     insn('00xxx110 imm8', 'LD x,imm8', 'x := imm8', 'x/'),
@@ -176,9 +180,9 @@ instructions = [
     insn('0001p111', 'RLA/RRA', 'rla/rra', 'AF/AF'),
     insn('00100111', 'DAA', 'daa', 'AF/AF'),
     insn('00101111', 'CPL', 'A := ~A', 'AF/A'),
-    insn('00001000 addr16', 'LD (addr16),SP', '(addr16) := SP', '/SP'),
+    insn('00001000 addr16', 'LD (addr16),SP', '*addr16 := SP', '/SP'),
     insn('00zz1001', 'ADD HL,z', 'HL += z', 'HLF/z'),
-    insn('00ww1010', 'LD A,(w)', 'A := (w)', 'A/w'),
+    insn('00ww1010', 'LD A,(w)', 'A := *w', 'A/w'),
     insn('01110110', 'HALT', 'halt'),  # would be LD (HL),(HL)
     insn('01xxxyyy', 'LD x,y', 'x := y', 'x/y'),
     insn('100p0xxx', 'ADD/SUB A,x', 'A +=/-= x', 'AF/Ax'),
@@ -190,12 +194,12 @@ instructions = [
     insn('11111110 imm8', 'CP imm8', 'compare imm8', 'F/A'),
     insn('111pp110 imm8', 'AND/XOR/OR/?? imm8', 'A &=/^=/|=/?? imm8', 'AF/A'),
     insn('11hhh111', 'RST h', 'reset h', 'PCSP/PCSP'),  # RST 00h/RST 08h/.../RST 38h
-    insn('11100000 imm8', 'LDH (imm8),A', '(himm8) := A', '/A'),
-    insn('11110000 imm8', 'LDH A,(imm8)', 'A := (himm8)', 'A/'),
-    insn('11100010', 'LD (C),A', '(0xFF00 + C) := A', '/CA'),
-    insn('11110011', 'LD A,(C)', 'A := (0xFF00 + C)', 'A/C'),
-    insn('11101010 addr16', 'LD (addr16),A', '(addr16) := A', '/A'),
-    insn('11111010 addr16', 'LD A,(addr16)', 'A := (addr16)', 'A/'),
+    insn('11100000 imm8', 'LDH (imm8),A', '*(himm8) := A', '/A'),
+    insn('11110000 imm8', 'LDH A,(imm8)', 'A := *(himm8)', 'A/'),
+    insn('11100010', 'LD (C),A', '*(0xFF00 + C) := A', '/CA'),
+    insn('11110011', 'LD A,(C)', 'A := *(0xFF00 + C)', 'A/C'),
+    insn('11101010 addr16', 'LD (addr16),A', '*addr16 := A', '/A'),
+    insn('11111010 addr16', 'LD A,(addr16)', 'A := *addr16', 'A/'),
     insn('11111000 simm8', 'LD HL,SP+simm8', 'HL := SP + simm8', 'HLF/SP'),
     insn('11111001', 'LD SP,HL', 'SP := HL', 'SP/HL'),
     insn('11101001 simm8', 'ADD SP,simm8', 'SP += simm8', 'SPF/'),
@@ -209,7 +213,7 @@ instructions = [
     insn('110ff000', 'RET f', 'if f return', 'PCSP/FSP', branch=(1, 'return')),
     insn('110ff010 addr16', 'JP f,addr16', 'if f jump addr16', 'PC/F', branch=(3, 'addr16')),
     insn('11000011 addr16', 'JP addr16', 'jump addr16', 'PC/', branch=('addr16',)),
-    insn('11100101', 'JP (HL)', 'jump (HL)', 'PC/HL', branch=()),
+    insn('11100101', 'JP (HL)', 'jump *HL', 'PC/HL', branch=()),
     insn('1111p011', 'DI/EI', 'interrupts-disable/interrupts-enable'),
 
     # Prefix CB (two-byte opcodes)

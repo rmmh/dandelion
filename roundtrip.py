@@ -7,7 +7,7 @@ import sys
 FORMAT='"%04.4_ax  " 16/1 "%02x " "\n"'
 
 def check_roundtrip(fname):
-    cmdline = './dandelion.py %s | ../Octo/octo' % pipes.quote(fname)
+    cmdline = './dandelion.py %s | ../Octo/octo /dev/stdin' % pipes.quote(fname)
     proc = subprocess.Popen(cmdline, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = proc.communicate()
     #if err:

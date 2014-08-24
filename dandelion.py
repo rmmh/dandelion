@@ -8,12 +8,6 @@ import re
 import machine
 
 
-class Options(object):
-    org = False
-
-options = Options()
-
-
 class Label(object):
 
     def __init__(self, name, addr, uses):
@@ -406,7 +400,7 @@ class Analyzer(object):
                 while self.mem.get(zero_addr) == 0 and zero_addr not in self.labels:
                     zero_addr += 1
                 zero_count = zero_addr - addr
-                if zero_count > 10 and options.org:
+                if zero_count > 10 and self.options.org:
                     for _ in xrange(zero_count - 1):
                         addr, val = addr_iter.next()
                     out += '\n:org 0x%x\n' % (addr + 1)
@@ -426,7 +420,7 @@ class Analyzer(object):
         addr += 1
         for pos, label in sorted(self.labels.iteritems()):
             if pos >= addr:
-                if pos > addr + 10 and options.org:
+                if pos > addr + 10 and self.options.org:
                     out += '\n\n:org 0x%x\n' % pos
                 else:
                     while pos > addr:
@@ -447,6 +441,7 @@ class Analyzer(object):
 
 
 def decompile_chip8(data, options):
+    options.org = False
     import chip8
     mem = MemoryMap()
     mem.load_segment(0x200, data)
