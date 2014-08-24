@@ -84,6 +84,10 @@ class NaturalLoop(object):
     def get_head_addr(self):
         return self.head.addr
 
+    @property
+    def max_back_addr(self):
+        return max(x.addr for x in self.back)
+
     def get_again_addr(self):
         if self.back - self.back_nested:
             again_point = max(self.back - self.back_nested,
@@ -127,7 +131,7 @@ def extract_natural_loops(bbs, doms):
                 continue
             if head2 in loop1.body:
                 for back in loop1.back:
-                    if head2 in doms[back]:
+                    if head2 in doms[back] and back.addr < loop2.max_back_addr:
                         loop1.back_nested.add(back)
 
     return natural_loops
@@ -328,7 +332,7 @@ class Analyzer(object):
 
         if self.options.dump_loops:
             print '# LOOPS:'
-            for l in natural_loops.values():
+            for pos, l in sorted(natural_loops.iteritems()):
                 print '#', l
 
         loop_points = set()
@@ -416,7 +420,7 @@ class Analyzer(object):
                         out += hex(val) + ' '
                     out += ' # SMC: %s\n' % self.code[orig_addr]
             # out += '# %x\n' % addr
-        # step past the end of the loop
+        # step past the end of the rom
         addr += 1
         for pos, label in sorted(self.labels.iteritems()):
             if pos >= addr:
