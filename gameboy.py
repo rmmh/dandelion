@@ -131,6 +131,7 @@ class LR35902Instruction(machine.Instruction):
     def get_defuses(self):
         return self._convert_ud(self.defs_), self._convert_ud(self.uses_)
 
+
 def insn(encoding, fmt, fmt_octo, defuse='/', branch=None, call=None):
     length_ = 1
     if '8' in encoding:
@@ -140,7 +141,6 @@ def insn(encoding, fmt, fmt_octo, defuse='/', branch=None, call=None):
 
     reg_tok = re.compile(r'SP|PC|.')
     defs, uses = map(reg_tok.findall, defuse.split('/'))
-
 
     class Insn(LR35902Instruction):
         length = length_
@@ -197,12 +197,12 @@ instructions = [
     insn('11100000 imm8', 'LDH (imm8),A', '*(himm8) := A', '/A'),
     insn('11110000 imm8', 'LDH A,(imm8)', 'A := *(himm8)', 'A/'),
     insn('11100010', 'LD (C),A', '*(0xFF00 + C) := A', '/CA'),
-    insn('11110011', 'LD A,(C)', 'A := *(0xFF00 + C)', 'A/C'),
+    insn('11110010', 'LD A,(C)', 'A := *(0xFF00 + C)', 'A/C'),
     insn('11101010 addr16', 'LD (addr16),A', '*addr16 := A', '/A'),
     insn('11111010 addr16', 'LD A,(addr16)', 'A := *addr16', 'A/'),
     insn('11111000 simm8', 'LD HL,SP+simm8', 'HL := SP + simm8', 'HLF/SP'),
     insn('11111001', 'LD SP,HL', 'SP := HL', 'SP/HL'),
-    insn('11101001 simm8', 'ADD SP,simm8', 'SP += simm8', 'SPF/'),
+    insn('11101000 simm8', 'ADD SP,simm8', 'SP += simm8', 'SPF/'),
     insn('110ff100 addr16', 'CALL f,addr16', 'if f addr16', 'PCSP/FPCSP', call='addr16'),
     insn('11001101 addr16', 'CALL addr16', 'addr16', 'PCSP/PCSP', call='addr16'),
     insn('110p1001', 'RET/RETI', 'return/returni', 'PCSP/SP', branch=('return',)),
@@ -213,7 +213,7 @@ instructions = [
     insn('110ff000', 'RET f', 'if f return', 'PCSP/FSP', branch=(1, 'return')),
     insn('110ff010 addr16', 'JP f,addr16', 'if f jump addr16', 'PC/F', branch=(3, 'addr16')),
     insn('11000011 addr16', 'JP addr16', 'jump addr16', 'PC/', branch=('addr16',)),
-    insn('11100101', 'JP (HL)', 'jump *HL', 'PC/HL', branch=()),
+    insn('11101001', 'JP (HL)', 'jump *HL', 'PC/HL', branch=()),
     insn('1111p011', 'DI/EI', 'interrupts-disable/interrupts-enable'),
 
     # Prefix CB (two-byte opcodes)
@@ -256,3 +256,31 @@ def decompile(ana, data):
                         (0x100, '_init')):
         ana.define_subroutine(addr, label)
     ana.analyze()
+
+def test_invalid():
+    class Engine(object):
+        def get_label(self, v, addr):
+            return 'L1'
+
+        def add_branch(self, *args):
+            pass
+
+        add_call = add_branch
+
+    invalid = set()
+    for opcode in range(256):
+        if not opcode & 0xF:
+            print
+        mem = {0: opcode, 1: 0x12, 2: 0x34}
+        try:
+            insn = decode(0, mem, Engine())
+        except machine.InvalidOpcode:
+            invalid.add(opcode)
+
+    expected_invalid = {0xd3,       0xdb,       0xdd,
+                        0xe3, 0xe4, 0xeb, 0xec, 0xed,
+                              0xf4,       0xfc, 0xfd}
+    assert invalid == expected_invalid
+
+if __name__ == '__main__':
+    test_chart()

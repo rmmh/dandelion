@@ -388,8 +388,8 @@ class Analyzer(object):
                     indent = ' ' * indent_count
                     pred = insn.get_predicate() or ''
                     if pred:
-                        pred = ' if %s' % pred
-                    out += indent + 'again'
+                        pred = 'if %s ' % pred
+                    out += indent + pred + 'again'
                     if self.options.show_loop_labels:
                         out += ' # %s' % label
                     out += '\n'
