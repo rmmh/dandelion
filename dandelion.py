@@ -148,7 +148,6 @@ class Analyzer(object):
         self.label_generator = ('L%d' % n for n in itertools.count())
         self.refs = collections.defaultdict(list)
         self.xrefs = collections.defaultdict(list)
-        self.use_proto = False
         self.options = options
 
         self.bbs = {}
@@ -351,10 +350,6 @@ class Analyzer(object):
                 again_points.add(again_point)
 
         out = ''
-        if self.use_proto:
-            for pos, label in sorted(self.labels.iteritems()):
-                if any(label.addr > use for use in label.uses if use is not None):
-                    out += ':proto %s # %X\n' % (label, pos)
 
         addr_iter = self.mem.addrs()
         labels_emitted = set()
@@ -452,7 +447,6 @@ def decompile_chip8(data, options):
     ana = Analyzer(chip8.decode, mem, options)
     ana.define_subroutine(0x200, 'main')
     ana.analyze()
-    ana.use_proto = True
     return ana.dump()
 
 
