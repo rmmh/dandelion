@@ -151,6 +151,7 @@ class Analyzer(object):
         self.options = options
 
         self.bbs = {}
+        self.metadata = []
 
     def code_ref(self, addr):
         self.worklist.append(addr)
@@ -179,6 +180,9 @@ class Analyzer(object):
                     addr += len(insn)
 
         self.rename_labels()
+
+    def add_metadata(self, comment):
+        self.metadata.append(comment)
 
     def add_branch(self, src, dst, next=False):
         self.add_ref(src, dst, 'branch')
@@ -304,11 +308,11 @@ class Analyzer(object):
     def dump(self):
         self.build_cfg()
         bbs = self.bbs
-        doms = find_dominators(bbs.values())
 
         if self.options.no_loop:
             natural_loops = {}
         else:
+            doms = find_dominators(bbs.values())
             natural_loops = extract_natural_loops(bbs, doms)
 
         def labels(bbs, truncate=False):
@@ -350,6 +354,9 @@ class Analyzer(object):
                 again_points.add(again_point)
 
         out = ''
+
+        for data in self.metadata:
+            out += '# META: %s\n' % data
 
         addr_iter = self.mem.addrs()
         labels_emitted = set()
@@ -483,7 +490,7 @@ def main():
         print '#' * 70
         if fname.endswith('.ch8'):
             print decompile_chip8(data, args)
-        elif fname.endswith('.gb'):
+        elif fname.endswith('.gb') or fname.endswith('.gbc'):
             print decompile_gameboy(data, args)
         else:
             print "# No handlers for file", fname

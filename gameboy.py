@@ -5,6 +5,7 @@ import re
 reg_groups = {
     'x': ['B', 'C', 'D', 'E', 'H', 'L', '(HL)', 'A'],
     'z': ['BC', 'DE', 'HL', 'SP'],
+    's': ['BC', 'DE', 'HL', 'AF'],
     'w': ['BC', 'DE', 'HL+', 'HL-'],
     'f': ['NZ', 'Z', 'NC', 'C']
 }
@@ -75,6 +76,37 @@ io_ports = {
     0xFFFF: 'INTERRUPT_ENABLE'
 }
 
+cartridge_types = {
+    0x00: 'ROM ONLY',
+    0x01: 'MBC1',
+    0x02: 'MBC1+RAM',
+    0x03: 'MBC1+RAM+BATTERY',
+    0x05: 'MBC2',
+    0x06: 'MBC2+BATTERY',
+    0x08: 'ROM+RAM',
+    0x09: 'ROM+RAM+BATTERY',
+    0x0B: 'MMM01',
+    0x0C: 'MMM01+RAM',
+    0x0D: 'MMM01+RAM+BATTERY',
+    0x0F: 'MBC3+TIMER+BATTERY',
+    0x10: 'MBC3+TIMER+RAM+BATTERY',
+    0x11: 'MBC3',
+    0x12: 'MBC3+RAM',
+    0x13: 'MBC3+RAM+BATTERY',
+    0x15: 'MBC4',
+    0x16: 'MBC4+RAM',
+    0x17: 'MBC4+RAM+BATTERY',
+    0x19: 'MBC5',
+    0x1A: 'MBC5+RAM',
+    0x1B: 'MBC5+RAM+BATTERY',
+    0x1C: 'MBC5+RUMBLE',
+    0x1D: 'MBC5+RUMBLE+RAM',
+    0x1E: 'MBC5+RUMBLE+RAM+BATTERY',
+    0xFC: 'POCKET CAMERA',
+    0xFD: 'BANDAI TAMA5',
+    0xFE: 'HuC3',
+    0xFF: 'HuC1+RAM+BATTERY',
+}
 
 class LR35902Instruction(machine.Instruction):
 
@@ -206,8 +238,8 @@ instructions = [
     insn('110ff100 addr16', 'CALL f,addr16', 'if f addr16', 'PCSP/FPCSP', call='addr16'),
     insn('11001101 addr16', 'CALL addr16', 'addr16', 'PCSP/PCSP', call='addr16'),
     insn('110p1001', 'RET/RETI', 'return/returni', 'PCSP/SP', branch=('return',)),
-    insn('11zz0001', 'POP z', 'pop z', 'zSP/SP'),
-    insn('11zz0101', 'PUSH z', 'push z', 'SP/SPz'),
+    insn('11ss0001', 'POP s', 'pop s', 'sSP/SP'),
+    insn('11ss0101', 'PUSH s', 'push s', 'SP/SPs'),
     insn('00011000 simm8', 'JR rel8', 'jumpr rel8', 'PC/PC', branch=('rel8',)),
     insn('001ff000 simm8', 'JR f,rel8', 'if f jumpr rel8', 'PC/FPC', branch=(2, 'rel8')),
     insn('110ff000', 'RET f', 'if f return', 'PCSP/FSP', branch=(1, 'return')),
@@ -247,6 +279,14 @@ def decode(addr, mem, engine):
 
 
 def decompile(ana, data):
+    ana.add_metadata('cart: ' + cartridge_types[data[0x147]])
+    rom_size = data[0x148]
+    if 0 <= rom_size <= 7:
+        ana.add_metadata('rom: %dKB' % (32 << rom_size))
+    ram_size = data[0x149]
+    if ram_size:
+        ana.add_metadata('ram: %dKB' % [0, 2, 8, 32][ram_size])
+
     ana.mem.load_segment(0x0, data)
     for addr, label in ((0x40, '_int_vblank'),
                         (0x48, '_int_lcdstat'),
