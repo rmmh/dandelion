@@ -207,6 +207,8 @@ class Analyzer(object):
         self.add_call(None, addr)
 
     def get_label(self, addr, xref, name=None):
+        if addr >= 0x8000:
+            return hex(addr)
         if addr in self.labels:
             lab = self.labels[addr]
             lab.uses.append(xref)
