@@ -297,6 +297,12 @@ def decompile(ana, data):
         ana.define_subroutine(addr, label)
     ana.analyze()
 
+    for pos, label in ana.labels.iteritems():
+        if label.name.startswith('_i'):
+            branch = ana.get_ref(pos, 'branch')
+            if branch in ana.labels:
+                ana.set_label_name(branch, label.name[1:])
+
 def test_invalid():
     class Engine(object):
         def get_label(self, v, addr):

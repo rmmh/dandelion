@@ -180,6 +180,7 @@ class Analyzer(object):
                     addr += len(insn)
 
         self.rename_labels()
+        self.validate()
 
     def add_metadata(self, comment):
         self.metadata.append(comment)
@@ -192,11 +193,18 @@ class Analyzer(object):
         self.refs[src].append((dst, ty))
         self.xrefs[dst].append((src, ty))
 
+    @staticmethod
+    def _first_ref_matching(refs, ty):
+        for addr, ref_ty in refs:
+            if ref_ty == ty:
+                return addr
+        return None
+
+    def get_ref(self, addr, ty):
+        return self._first_ref_matching(self.refs.get(addr, []), ty)
+
     def get_xref(self, addr, ty):
-        for source, xref_ty in self.xrefs.get(addr, []):
-            if xref_ty == ty:
-                return True
-        return False
+        return self._first_ref_matching(self.xrefs.get(addr, []), ty)
 
     def add_call(self, src, target):
         self.add_ref(src, target, 'call')
@@ -219,6 +227,9 @@ class Analyzer(object):
         self.labels[addr] = ret
         return ret
 
+    def set_label_name(self, addr, name):
+        self.labels[addr].name = name
+
     def rename_labels(self):
         code_count = itertools.count(1)
         data_count = itertools.count(1)
@@ -226,12 +237,19 @@ class Analyzer(object):
         for pos, label in sorted(self.labels.iteritems()):
             if not label.name.startswith('L'):
                 continue
-            if self.get_xref(label.addr, 'call'):
+            if self.get_xref(label.addr, 'call') is not None:
                 label.name = 'Sub%d' % next(pred_count)
             elif label.addr in self.code:
                 label.name = 'L%d' % next(code_count)
             else:
                 label.name = 'D%d' % next(data_count)
+
+    def validate(self):
+        labels = set()
+        for pos, label in sorted(self.labels.iteritems()):
+            if label in labels:
+                print '# ERROR: Duplicate label %s at %x' % (label, pos)
+            labels.add(label)
 
     def build_cfg(self, force=False):
         if self.bbs and not force:
@@ -264,7 +282,7 @@ class Analyzer(object):
             pos = bb.addr
             if pos == 'return':
                 continue
-            if self.get_xref(pos, 'call'):
+            if self.get_xref(pos, 'call') is not None:
                 bb_entry = BasicBlock(None, '%s_ENTRY' % bb.label)
                 bb_exit = BasicBlock(None, '%s_EXIT' % bb.label)
                 bbs['return'] = bb_exit
@@ -283,7 +301,7 @@ class Analyzer(object):
                 pos += len(insn)
                 if pos not in self.code:
                     break
-                if pos in self.labels or self.get_xref(pos, 'branch'):
+                if pos in self.labels or self.get_xref(pos, 'branch') is not None:
                     linkto(bb, get_bb(pos))
                     break
 
