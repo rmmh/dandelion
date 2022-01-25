@@ -112,7 +112,7 @@ class LR35902Instruction(machine.Instruction):
 
     def fmt_args(self, args, engine):
         ret = dict(args)
-        for k, v in args.iteritems():
+        for k, v in args.items():
             if k in reg_groups:
                 ret[k] = reg_groups[k][v]
             elif k == 'p':
@@ -172,7 +172,7 @@ def insn(encoding, fmt, fmt_octo, defuse='/', branch=None, call=None):
         length_ = 3
 
     reg_tok = re.compile(r'SP|PC|.')
-    defs, uses = map(reg_tok.findall, defuse.split('/'))
+    defs, uses = list(map(reg_tok.findall, defuse.split('/')))
 
     class Insn(LR35902Instruction):
         length = length_
@@ -235,8 +235,8 @@ instructions = [
     insn('11111000 simm8', 'LD HL,SP+simm8', 'HL := SP + simm8', 'HLF/SP'),
     insn('11111001', 'LD SP,HL', 'SP := HL', 'SP/HL'),
     insn('11101000 simm8', 'ADD SP,simm8', 'SP += simm8', 'SPF/'),
-    insn('110ff100 addr16', 'CALL f,addr16', 'if f addr16', 'PCSP/FPCSP', call='addr16'),
-    insn('11001101 addr16', 'CALL addr16', 'addr16', 'PCSP/PCSP', call='addr16'),
+    insn('110ff100 addr16', 'CALL f,addr16', 'if f addr16()', 'PCSP/FPCSP', call='addr16'),
+    insn('11001101 addr16', 'CALL addr16', 'addr16()', 'PCSP/PCSP', call='addr16'),
     insn('110p1001', 'RET/RETI', 'return/returni', 'PCSP/SP', branch=('return',)),
     insn('11ss0001', 'POP s', 'pop s', 'sSP/SP'),
     insn('11ss0101', 'PUSH s', 'push s', 'SP/SPs'),
@@ -258,7 +258,7 @@ instructions = [
 
 def decode(addr, mem, engine):
     context = 0
-    for x in xrange(3):
+    for x in range(3):
         context = (context << 8) | (mem.get(addr + x) or 0)
     context_bin = '{:024b}'.format(context)
 
@@ -270,7 +270,7 @@ def decode(addr, mem, engine):
         m = insn.match(context_bin)
         if m is not None:
             m = {k: int(v, 2) for k, v
-                 in m.groupdict().iteritems()}
+                 in m.groupdict().items()}
             swapb('imm16')
             swapb('simm16')
             swapb('addr16')
@@ -297,7 +297,7 @@ def decompile(ana, data):
         ana.define_subroutine(addr, label)
     ana.analyze()
 
-    for pos, label in ana.labels.iteritems():
+    for pos, label in ana.labels.items():
         if label.name.startswith('_i'):
             branch = ana.get_ref(pos, 'branch')
             if branch in ana.labels:
@@ -316,7 +316,7 @@ def test_invalid():
     invalid = set()
     for opcode in range(256):
         if not opcode & 0xF:
-            print
+            print()
         mem = {0: opcode, 1: 0x12, 2: 0x34}
         try:
             insn = decode(0, mem, Engine())

@@ -7,7 +7,7 @@ class Chip8Instruction(machine.Instruction):
 
     def fmt_args(self, args, engine):
         ret = dict(args)
-        for k, v in args.iteritems():
+        for k, v in args.items():
             if k == 'x' or k == 'y':
                 ret[k] = 'v{:X}'.format(v)
             elif k == 'n':
@@ -90,6 +90,6 @@ def decode(addr, mem, engine):
         m = insn.match(word_hex)
         if m is not None:
             m = {k: int(v, 16) for k, v
-                 in m.groupdict().iteritems()}
+                 in m.groupdict().items()}
             return insn(addr, m, engine)
     raise machine.InvalidOpcode(word_hex)

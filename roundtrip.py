@@ -13,22 +13,22 @@ def check_roundtrip(fname):
     #if err:
     #    print err
     if proc.returncode:
-        print 'ERROR', fname, out, err
+        print('ERROR', fname, out, err)
         return False
     #print repr(out)
     expected = open(fname).read()
     #print repr(expected)
-    if out.rstrip('\x00') != expected.rstrip('\x00'):
+    if out.rstrip(b'\x00') != expected.rstrip(b'\x00'):
         diffs = []
         for n, (a, b) in enumerate(zip(out, expected)):
             if a != b:
                 diffs.append((n, ord(a), ord(b)))
-        print 'BAD ', fname
+        print('BAD ', fname)
         for d in diffs:
-            print '%04x  %02x->%02x' % d
+            print('%04x  %02x->%02x' % d)
         return False
     else:
-        print 'GOOD', fname
+        print('GOOD', fname)
         return True
 
 if __name__ == '__main__':
@@ -37,4 +37,4 @@ if __name__ == '__main__':
     for fname in sys.argv[1:]:
         good += check_roundtrip(fname)
         total += 1
-    print '%s/%s' % (good, total)
+    print('%s/%s' % (good, total))

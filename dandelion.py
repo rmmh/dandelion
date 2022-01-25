@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import argparse
 import collections
@@ -117,7 +117,7 @@ def extract_natural_loops(bbs, doms):
                 for pred in bb.pred:
                     stack.append(pred)
 
-    for bb in bbs.itervalues():
+    for bb in bbs.values():
         for succ in bb.succ:
             if succ in doms[bb]:
                 extract_loop(succ, bb)
@@ -125,8 +125,8 @@ def extract_natural_loops(bbs, doms):
     # TODO: proper interval/structural analysis
 
     # loops should nest properly
-    for head1, loop1 in natural_loops.iteritems():
-        for head2, loop2 in natural_loops.iteritems():
+    for head1, loop1 in natural_loops.items():
+        for head2, loop2 in natural_loops.items():
             if head1 is head2:
                 continue
             if head2 in loop1.body:
@@ -165,12 +165,12 @@ class Analyzer(object):
                 if self.code.get(addr):
                     break
                 if self.mem.get(addr) is None:
-                    print '# executing code at unknown memory loc 0x%x' % addr
+                    print('# executing code at unknown memory loc 0x%x' % addr)
                     break
                 try:
                     insn = self.decoder(addr, self.mem, self)
-                except machine.InvalidOpcode, e:
-                    print '# %r' % e
+                except machine.InvalidOpcode as e:
+                    print('# %r' % e)
                     break
                 else:
                     # print addr, insn, insn.next, insn.args
@@ -234,7 +234,7 @@ class Analyzer(object):
         code_count = itertools.count(1)
         data_count = itertools.count(1)
         pred_count = itertools.count(1)
-        for pos, label in sorted(self.labels.iteritems()):
+        for pos, label in sorted(self.labels.items()):
             if not label.name.startswith('L'):
                 continue
             if self.get_xref(label.addr, 'call') is not None:
@@ -246,9 +246,9 @@ class Analyzer(object):
 
     def validate(self):
         labels = set()
-        for pos, label in sorted(self.labels.iteritems()):
+        for pos, label in sorted(self.labels.items()):
             if label in labels:
-                print '# ERROR: Duplicate label %s at %x' % (label, pos)
+                print('# ERROR: Duplicate label %s at %x' % (label, pos))
             labels.add(label)
 
     def build_cfg(self, force=False):
@@ -268,7 +268,7 @@ class Analyzer(object):
                 bbs[pos] = bb
             return bbs[pos]
 
-        for pos, label in sorted(self.labels.iteritems()):
+        for pos, label in sorted(self.labels.items()):
             if pos not in self.code:
                 continue
             get_bb(pos, label)
@@ -311,19 +311,19 @@ class Analyzer(object):
         self.build_cfg()
 
         pair_counts = collections.Counter((a.fmt_, b.fmt_)
-                                          for addr, bb in self.bbs.iteritems()
+                                          for addr, bb in self.bbs.items()
                                           for a, b in zip(bb.code, bb.code[1:]))
 
         triple_counts = collections.Counter((a.fmt_, b.fmt_, c.fmt_)
-                                            for addr, bb in self.bbs.iteritems()
+                                            for addr, bb in self.bbs.items()
                                             for a, b, c in zip(bb.code, bb.code[1:], bb.code[2:]))
 
         for pair, count in pair_counts.most_common(30):
-            print count, '\t'.join(pair)
+            print(count, '\t'.join(pair))
 
-        print 'triples:'
+        print('triples:')
         for triple, count in triple_counts.most_common(30):
-            print count, '\t'.join(triple)
+            print(count, '\t'.join(triple))
 
     def dump(self):
         self.build_cfg()
@@ -332,7 +332,7 @@ class Analyzer(object):
         if self.options.no_loop:
             natural_loops = {}
         else:
-            doms = find_dominators(bbs.values())
+            doms = find_dominators(list(bbs.values()))
             natural_loops = extract_natural_loops(bbs, doms)
 
         def labels(bbs, truncate=False):
@@ -343,27 +343,27 @@ class Analyzer(object):
 
         def has_smc(addr):
             insn = self.code[addr]
-            for off in xrange(1, insn.length):
+            for off in range(1, insn.length):
                 if addr + off in self.labels:
                     return True
             return False
 
         if self.options.dump_cfg:
-            print '# CFG:'
-            for pos, bb in sorted(bbs.iteritems()):
-                print '#', bb, labels(doms[bb])
+            print('# CFG:')
+            for pos, bb in sorted(bbs.items()):
+                print('#', bb, labels(doms[bb]))
 
         if self.options.dump_loops:
-            print '# LOOPS:'
-            for pos, l in sorted(natural_loops.iteritems()):
-                print '#', l
+            print('# LOOPS:')
+            for pos, l in sorted(natural_loops.items()):
+                print('#', l)
 
         loop_points = set()
         again_points = set()
 
         # print '# loops:'
-        for head, loop in sorted(natural_loops.iteritems(),
-                                 key=lambda (k, v): k.addr):
+        for head, loop in sorted(iter(natural_loops.items()),
+                                 key=lambda k_v: k_v[0].addr):
             again_point = loop.get_again_addr()
             if again_point:
                 if has_smc(again_point):
@@ -417,8 +417,8 @@ class Analyzer(object):
                     out += '\n'
                 else:
                     out += indent + '%s\n' % insn
-                for _ in xrange(1, insn.length):
-                    addr, _ = addr_iter.next()
+                for _ in range(1, insn.length):
+                    addr, _ = next(addr_iter)
             else:
                 # don't output long runs of zeros
                 orig_addr = addr
@@ -427,15 +427,15 @@ class Analyzer(object):
                     zero_addr += 1
                 zero_count = zero_addr - addr
                 if zero_count > 10 and self.options.org:
-                    for _ in xrange(zero_count - 1):
-                        addr, val = addr_iter.next()
+                    for _ in range(zero_count - 1):
+                        addr, val = next(addr_iter)
                     out += '\n:org 0x%x\n' % (addr + 1)
                 else:
                     out += hex(val) + ' '
                 if is_code:
                     insn = self.code[orig_addr]
-                    for _ in xrange(1, insn.length):
-                        addr, val = addr_iter.next()
+                    for _ in range(1, insn.length):
+                        addr, val = next(addr_iter)
                         if addr in self.labels:
                             out += ': %s ' % self.labels[addr]
                             labels_emitted.add(addr)
@@ -444,7 +444,7 @@ class Analyzer(object):
             # out += '# %x\n' % addr
         # step past the end of the rom
         addr += 1
-        for pos, label in sorted(self.labels.iteritems()):
+        for pos, label in sorted(self.labels.items()):
             if pos >= addr:
                 if pos > addr + 10 and self.options.org:
                     out += '\n\n:org 0x%x\n' % pos
@@ -498,22 +498,22 @@ def main():
                         help="files to disassemble")
     args = parser.parse_args()
     if len(args.files) > 10:
-        print '# INPUT FILE LISTING:'
+        print('# INPUT FILE LISTING:')
         for fname in args.files:
-            print '#', fname
-        print
+            print('#', fname)
+        print()
 
     for fname in args.files:
-        data = map(ord, open(fname, 'rb').read())
-        print '#' * 70
-        print '# INPUT:', fname
-        print '#' * 70
+        data = list(open(fname, 'rb').read())
+        print('#' * 70)
+        print('# INPUT:', fname)
+        print('#' * 70)
         if fname.endswith('.ch8'):
-            print decompile_chip8(data, args)
+            print(decompile_chip8(data, args))
         elif fname.endswith('.gb') or fname.endswith('.gbc'):
-            print decompile_gameboy(data, args)
+            print(decompile_gameboy(data, args))
         else:
-            print "# No handlers for file", fname
+            print("# No handlers for file", fname)
 
 if __name__ == '__main__':
     main()
